@@ -1,7 +1,5 @@
 ### Directory tree for: .
 
-test
-
 ./
 ├── AUTORAG.code-workspace
 ├── README.md
@@ -32,15 +30,68 @@ test
 ├── snapshot.txt
 ├── training/
 │   ├── loss_functions.py
-│   ├── train_ae.py
 │   ├── train_cae.py
-│   └── train_dae.py
+│   ├── train_dae.py
+│   └── train_vae.py
 └── utils/
     ├── load_config.py
     └── training_utils.py
 
 9 directories, 26 files
 
+
+### File contents
+
+AUTORAG.code-workspace
+"""
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}
+"""
+
+README.md
+"""
+
+
+
+
+
+├── models/
+│   ├── base_autoencoder.py        # Clase abstracta
+│   ├── vae.py                     # Variational Autoencoder
+│   ├── dae.py                     # Denoising Autoencoder
+│   ├── contrastive_ae.py          # Autoencoder con contraste
+│
+├── training/
+│   ├── train_ae.py                # Rutinas de entrenamiento
+│   ├── loss_functions.py          # Pérdidas personalizadas
+│
+├── retrieval/
+│   ├── embedder.py                # Codificadores tradicionales y refinados
+│   ├── retriever.py               # Recuperación (BM25, DPR, embeddings comprimidos)
+│
+├── generation/
+│   ├── generator.py               # Integración con LLM vía API
+│
+├── evaluation/
+│   ├── retrieval_metrics.py                 # Métricas de recuperación y generación
+|   |_ autoencoder_metrics.py
+|   |_ generation_metrics.py
+│
+├── data/
+│   └── ...                        # Datasets y preprocessors
+│
+├── config/
+│   └── config.yaml                # Parámetros experimentales
+│
+├── main.py                        # Script principal para orquestar el flujo
+└── requirements.txt               # Dependencias
+"""
 
 config/config.yaml
 """
@@ -57,14 +108,27 @@ embedding_model:
   name: "sentence-transformers/all-MiniLM-L6-v2"
   max_length: 256
 
-autoencoder:
-  # options: vae, dae, contrastive, none
+models:
+  vae:
+    input_dim: 384
+    latent_dim: 64
+    hidden_dim: 512
+    dataset_path: "./data/uda_dae_train.jsonl"
+    checkpoint: "./models/checkpoints/vae_text.pth"
 
-  type: "vae"
-  input_dim: 384   # Dimensión de entrada del modelo de embedding
-  latent_dim: 64
-  hidden_dim: 512
-  checkpoint: "./models/checkpoints/vae_latent64.pth"
+  dae:
+    input_dim: 384
+    latent_dim: 64
+    hidden_dim: 512
+    dataset_path: "./data/uda_dae_train.jsonl"
+    checkpoint: "./models/checkpoints/dae_text.pth"
+
+  contrastive:
+    input_dim: 384
+    latent_dim: 64
+    hidden_dim: 512
+    dataset_path: "./data/uda_contrastive_train.jsonl"
+    checkpoint: "./models/checkpoints/contrastive_ae.pth"
 
 training:
   batch_size: 128
@@ -976,14 +1040,14 @@ printf '\n\n### File contents\n\n' >> "$OUTPUT_TXT"
 ###############################################################################
 # 3. Append each file (relative path + contents)
 ###############################################################################
-# Absolute path to output to compare properly
+# Absolute path to output for comparison
 ABS_OUTPUT="$(realpath "$OUTPUT_TXT")"
 
-# Use null-delimited pipeline, excluding the output file itself
-find "$TARGET_DIR" -type f -print0 | sort -z |
+# Exclude hidden files and files inside hidden directories
+find "$TARGET_DIR" -type f ! -path '*/.*/*' ! -name '.*' -print0 | sort -z |
 while IFS= read -r -d '' FILE
 do
-  # Resolve real path for comparison
+  # Resolve absolute path of the file
   ABS_FILE="$(realpath "$FILE")"
 
   # Skip the output file itself
@@ -991,25 +1055,23 @@ do
     continue
   fi
 
-  # Remove the leading base path for readability
+  # Remove leading base path for relative display
   REL_PATH="${FILE#$TARGET_DIR/}"
 
-  # Header: path
+  # Header
   printf '%s\n' "$REL_PATH" >> "$OUTPUT_TXT"
   printf '"""\n' >> "$OUTPUT_TXT"
 
-  # Body: raw file bytes (warn if unreadable)
+  # File contents
   if ! cat "$FILE" >> "$OUTPUT_TXT" 2>/dev/null; then
-      printf '[[[ Error reading file ]]]\n' >> "$OUTPUT_TXT"
-      printf 'Warning: Could not read "%s".\n' "$REL_PATH" >&2
+    printf '[[[ Error reading file ]]]\n' >> "$OUTPUT_TXT"
+    printf 'Warning: Could not read "%s".\n' "$REL_PATH" >&2
   fi
 
   # Footer
   printf '\n"""\n\n' >> "$OUTPUT_TXT"
 done
-
-printf 'Snapshot saved to "%s"\n' "$OUTPUT_TXT"
-
+printf 'Snapshot saved to: %s\n' "$OUTPUT_TXT"
 """
 
 training/loss_functions.py
@@ -1038,7 +1100,198 @@ def contrastive_loss(z_q: torch.Tensor, z_pos: torch.Tensor, z_neg: torch.Tensor
 
 """
 
-training/train_ae.py
+training/train_cae.py
+"""
+import argparse
+import os
+import yaml
+import torch
+from torch.utils.data import DataLoader
+from transformers import AutoTokenizer
+from models.contrastive_autoencoder import ContrastiveAutoencoder
+from training.loss_functions import contrastive_loss
+from data.torch_datasets import ContrastiveDataset
+from dotenv import load_dotenv
+from utils.load_config import load_config
+from utils.training_utils import set_seed, resolve_device
+
+def train_contrastive(
+    dataset_path: str,
+    input_dim: int,
+    latent_dim: int,
+    hidden_dim: int,
+    batch_size: int,
+    epochs: int,
+    lr: float,
+    model_save_path: str,
+    tokenizer_name: str,
+    max_length: int = 256,
+    device: str = None
+):
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Training on: {device}")
+
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    dataset = ContrastiveDataset(dataset_path, tokenizer, max_length=max_length)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0.0
+        for batch in dataloader:
+            q = batch["query_ids"].to(device).float()
+            pos = batch["pos_ids"].to(device).float()
+            neg = batch["neg_ids"].to(device).float()
+
+            optimizer.zero_grad()
+            z_q = model.encode(q)
+            z_pos = model.encode(pos)
+            z_neg = model.encode(neg)
+            loss = contrastive_loss(z_q, z_pos, z_neg)
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+        avg_loss = total_loss / len(dataset)
+        print(f"[Epoch {epoch+1}/{epochs}] Loss: {avg_loss:.4f}")
+
+    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    torch.save(model.state_dict(), model_save_path)
+    print(f"[INFO] Model saved to: {model_save_path}")
+
+if __name__ == "__main__":
+    load_dotenv()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="./config/config.yaml")
+    parser.add_argument("--model", type=str, required=True, help="Model key in config.yaml: vae, dae, contrastive")
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--save_path", type=str)
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+    train_cfg = config.get("training", {})
+    model_key = args.model.lower()
+    model_cfg = config.get("models", {}).get(model_key, {})
+
+    set_seed(train_cfg.get("seed", 42))
+    device = resolve_device(train_cfg.get("device"))
+
+    train_contrastive(
+        dataset_path=model_cfg.get("dataset_path", f"./data/{model_key}_train.jsonl"),
+        input_dim=model_cfg.get("input_dim", 384),
+        latent_dim=model_cfg.get("latent_dim", 64),
+        hidden_dim=model_cfg.get("hidden_dim", 512),
+        batch_size=train_cfg.get("batch_size", 32),
+        epochs=args.epochs or train_cfg.get("epochs", 10),
+        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path=args.save_path or model_cfg.get("checkpoint", f"./models/checkpoints/{model_key}.pth"),
+        tokenizer_name=train_cfg.get("tokenizer", "sentence-transformers/all-MiniLM-L6-v2"),
+        max_length=train_cfg.get("max_length", 256),
+        device=device
+    )
+
+"""
+
+training/train_dae.py
+"""
+import argparse
+import os
+import yaml
+import torch
+from torch.utils.data import DataLoader
+from transformers import AutoTokenizer
+from models.denoising_autoencoder import DenoisingAutoencoder
+from training.loss_functions import dae_loss
+from utils.load_config import load_config
+from utils.training_utils import set_seed, resolve_device
+from data.torch_datasets import DAEDataset
+from dotenv import load_dotenv
+
+def train_dae_text(
+    dataset_path: str,
+    input_dim: int,
+    latent_dim: int,
+    hidden_dim: int,
+    batch_size: int,
+    epochs: int,
+    lr: float,
+    model_save_path: str,
+    tokenizer_name: str,
+    max_length: int = 256,
+    device: str = None
+):
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Training on: {device}")
+
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    dataset = DAEDataset(dataset_path, tokenizer, max_length=max_length)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    model.train()
+    for epoch in range(epochs):
+        total_loss = 0.0
+        for batch in dataloader:
+            input_ids = batch["input_ids"].to(device).float()
+            target_ids = batch["target_ids"].to(device).float()
+
+            optimizer.zero_grad()
+            x_recon = model(input_ids)
+            loss = dae_loss(x_recon, target_ids)
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+        avg_loss = total_loss / len(dataset)
+        print(f"[Epoch {epoch+1}/{epochs}] Loss: {avg_loss:.4f}")
+
+    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    torch.save(model.state_dict(), model_save_path)
+    print(f"[INFO] Model saved to: {model_save_path}")
+
+if __name__ == "__main__":
+    load_dotenv()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="./config/config.yaml")
+    parser.add_argument("--model", type=str, required=True, help="Model key in config.yaml: vae, dae, contrastive")
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--save_path", type=str)
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+    train_cfg = config.get("training", {})
+    model_key = args.model.lower()
+    model_cfg = config.get("models", {}).get(model_key, {})
+
+    set_seed(train_cfg.get("seed", 42))
+    device = resolve_device(train_cfg.get("device"))
+
+    train_dae_text(
+        dataset_path=model_cfg.get("dataset_path", f"./data/{model_key}_train.jsonl"),
+        input_dim=model_cfg.get("input_dim", 384),
+        latent_dim=model_cfg.get("latent_dim", 64),
+        hidden_dim=model_cfg.get("hidden_dim", 512),
+        batch_size=train_cfg.get("batch_size", 32),
+        epochs=args.epochs or train_cfg.get("epochs", 10),
+        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path=args.save_path or model_cfg.get("checkpoint", f"./models/checkpoints/{model_key}.pth"),
+        tokenizer_name=train_cfg.get("tokenizer", "sentence-transformers/all-MiniLM-L6-v2"),
+        max_length=train_cfg.get("max_length", 256),
+        device=device
+    )
+
+"""
+
+training/train_vae.py
 """
 import argparse
 import os
@@ -1053,7 +1306,7 @@ from utils.training_utils import set_seed, resolve_device
 from data.torch_datasets import DAEDataset
 from dotenv import load_dotenv
 
-def train_vae_text(
+def train_vae(
     dataset_path: str,
     input_dim: int,
     latent_dim: int,
@@ -1102,6 +1355,7 @@ if __name__ == "__main__":
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="./config/config.yaml")
+    parser.add_argument("--model", type=str, required=True, help="Model key in config.yaml: vae, dae, contrastive")
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--lr", type=float)
     parser.add_argument("--save_path", type=str)
@@ -1109,210 +1363,24 @@ if __name__ == "__main__":
 
     config = load_config(args.config)
     train_cfg = config.get("training", {})
-    ae_cfg = config.get("autoencoder", {})
+    model_key = args.model.lower()
+    model_cfg = config.get("models", {}).get(model_key, {})
 
     set_seed(train_cfg.get("seed", 42))
     device = resolve_device(train_cfg.get("device"))
 
-    train_vae_text(
-        dataset_path=train_cfg.get("dae_dataset_path", "./data/uda_dae_train.jsonl"),
-        input_dim=ae_cfg["input_dim"],
-        latent_dim=ae_cfg["latent_dim"],
-        hidden_dim=ae_cfg.get("hidden_dim", 512),
+    train_vae(
+        dataset_path=model_cfg.get("dataset_path", f"./data/{model_key}_train.jsonl"),
+        input_dim=model_cfg.get("input_dim", 384),
+        latent_dim=model_cfg.get("latent_dim", 64),
+        hidden_dim=model_cfg.get("hidden_dim", 512),
         batch_size=train_cfg.get("batch_size", 32),
         epochs=args.epochs or train_cfg.get("epochs", 10),
         lr=args.lr or train_cfg.get("learning_rate", 1e-3),
-        model_save_path=args.save_path or ae_cfg.get("checkpoint", "./models/checkpoints/vae_text.pth"),
-        tokenizer_name=train_cfg.get("tokenizer", "sentence-transformers/all-MiniLM-L6-v2"),
-        max_length=train_cfg.get("max_length", 256)
-    )
-
-"""
-
-training/train_cae.py
-"""
-import argparse
-import os
-import yaml
-import torch
-from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
-from models.contrastive_autoencoder import ContrastiveAutoencoder
-from training.loss_functions import contrastive_loss
-from data.torch_datasets import ContrastiveDataset
-from dotenv import load_dotenv
-from utils.load_config import load_config
-from utils.training_utils import set_seed, resolve_device
-
-
-def train_contrastive(
-    dataset_path: str,
-    input_dim: int,
-    latent_dim: int,
-    hidden_dim: int,
-    batch_size: int,
-    epochs: int,
-    lr: float,
-    model_save_path: str,
-    tokenizer_name: str,
-    max_length: int = 256,
-    device: str = None
-):
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training Contrastive AE on: {device}")
-
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    dataset = ContrastiveDataset(dataset_path, tokenizer, max_length=max_length)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-    model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-
-    model.train()
-    for epoch in range(epochs):
-        total_loss = 0.0
-        for batch in dataloader:
-            q = batch["query_ids"].to(device).float()
-            pos = batch["pos_ids"].to(device).float()
-            neg = batch["neg_ids"].to(device).float()
-
-            optimizer.zero_grad()
-            z_q = model.encode(q)
-            z_pos = model.encode(pos)
-            z_neg = model.encode(neg)
-            loss = contrastive_loss(z_q, z_pos, z_neg)
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-
-        avg_loss = total_loss / len(dataset)
-        print(f"[Epoch {epoch+1}/{epochs}] Loss: {avg_loss:.4f}")
-
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    torch.save(model.state_dict(), model_save_path)
-    print(f"[INFO] Model saved to: {model_save_path}")
-
-if __name__ == "__main__":
-    load_dotenv()
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="./config/config.yaml")
-    parser.add_argument("--epochs", type=int)
-    parser.add_argument("--lr", type=float)
-    parser.add_argument("--save_path", type=str)
-    args = parser.parse_args()
-
-    config = load_config(args.config)
-    train_cfg = config.get("training", {})
-    ae_cfg = config.get("autoencoder", {})
-
-    set_seed(train_cfg.get("seed", 42))
-    device = resolve_device(train_cfg.get("device"))
-
-    train_contrastive(
-        dataset_path=train_cfg.get("contrastive_dataset_path", "./data/uda_contrastive_train.jsonl"),
-        input_dim=ae_cfg["input_dim"],
-        latent_dim=ae_cfg.get("latent_dim", 64),
-        hidden_dim=ae_cfg.get("hidden_dim", 512),
-        batch_size=train_cfg.get("batch_size", 32),
-        epochs=args.epochs or train_cfg.get("epochs", 10),
-        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
-        model_save_path=args.save_path or ae_cfg.get("checkpoint", "./models/checkpoints/contrastive_ae.pth"),
-        tokenizer_name=train_cfg.get("tokenizer", "sentence-transformers/all-MiniLM-L6-v2"),
-        max_length=train_cfg.get("max_length", 256)
-    )
-
-"""
-
-training/train_dae.py
-"""
-import argparse
-import os
-import yaml
-import torch
-from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
-from models.denoising_autoencoder import DenoisingAutoencoder
-from training.loss_functions import dae_loss  # MSE reconstruction loss
-from data.torch_datasets import DAEDataset
-from dotenv import load_dotenv
-from utils.load_config import load_config
-from utils.torch_utils import set_seed, resolve_device
-
-def train_dae(
-    dataset_path: str,
-    input_dim: int,
-    hidden_dim: int,
-    latent_dim: int,
-    batch_size: int,
-    epochs: int,
-    lr: float,
-    model_save_path: str,
-    tokenizer_name: str,
-    max_length: int = 256,
-    device: str | None = None,
-):
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training DAE on: {device}")
-
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-    dataset = DAEDataset(dataset_path, tokenizer, max_length=max_length)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
-    # NOTE: order is (input_dim, latent_dim, hidden_dim)
-    model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-
-    model.train()
-    for epoch in range(epochs):
-        total_loss = 0.0
-        for batch in dataloader:
-            noisy = batch["input_ids"].to(device).float()
-            clean = batch["target_ids"].to(device).float()
-
-            optimizer.zero_grad()
-            recon = model(noisy)
-            loss = dae_loss(recon, clean)
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-
-        avg_loss = total_loss / len(dataset)
-        print(f"[Epoch {epoch+1}/{epochs}] Loss: {avg_loss:.4f}")
-
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    torch.save(model.state_dict(), model_save_path)
-    print(f"[INFO] Model saved to: {model_save_path}")
-
-
-if __name__ == "__main__":
-    load_dotenv()
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, default="./config/config.yaml")
-    parser.add_argument("--epochs", type=int)
-    parser.add_argument("--lr", type=float)
-    parser.add_argument("--save_path", type=str)
-    args = parser.parse_args()
-
-    cfg = load_config(args.config)
-    train_cfg = cfg.get("training", {})
-    ae_cfg = cfg.get("autoencoder", {})
-
-    set_seed(train_cfg.get("seed", 42))
-    device = resolve_device(train_cfg.get("device"))
-
-    train_dae(
-        dataset_path=train_cfg.get("dae_dataset_path", "./data/uda_dae_train.jsonl"),
-        input_dim=ae_cfg["input_dim"],
-        hidden_dim=ae_cfg.get("hidden_dim", 512),
-        latent_dim=ae_cfg.get("latent_dim", 64),
-        batch_size=train_cfg.get("batch_size", 32),
-        epochs=args.epochs or train_cfg.get("epochs", 10),
-        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
-        model_save_path=args.save_path or ae_cfg.get("checkpoint", "./models/checkpoints/dae_text.pth"),
+        model_save_path=args.save_path or model_cfg.get("checkpoint", f"./models/checkpoints/{model_key}.pth"),
         tokenizer_name=train_cfg.get("tokenizer", "sentence-transformers/all-MiniLM-L6-v2"),
         max_length=train_cfg.get("max_length", 256),
+        device=device
     )
 
 """

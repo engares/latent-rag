@@ -40,14 +40,14 @@ printf '\n\n### File contents\n\n' >> "$OUTPUT_TXT"
 ###############################################################################
 # 3. Append each file (relative path + contents)
 ###############################################################################
-# Absolute path to output to compare properly
+# Absolute path to output for comparison
 ABS_OUTPUT="$(realpath "$OUTPUT_TXT")"
 
-# Use null-delimited pipeline, excluding the output file itself
-find "$TARGET_DIR" -type f -print0 | sort -z |
+# Exclude hidden files and files inside hidden directories
+find "$TARGET_DIR" -type f ! -path '*/.*/*' ! -name '.*' -print0 | sort -z |
 while IFS= read -r -d '' FILE
 do
-  # Resolve real path for comparison
+  # Resolve absolute path of the file
   ABS_FILE="$(realpath "$FILE")"
 
   # Skip the output file itself
@@ -55,21 +55,20 @@ do
     continue
   fi
 
-  # Remove the leading base path for readability
+  # Remove leading base path for relative display
   REL_PATH="${FILE#$TARGET_DIR/}"
 
-  # Header: path
+  # Header
   printf '%s\n' "$REL_PATH" >> "$OUTPUT_TXT"
   printf '"""\n' >> "$OUTPUT_TXT"
 
-  # Body: raw file bytes (warn if unreadable)
+  # File contents
   if ! cat "$FILE" >> "$OUTPUT_TXT" 2>/dev/null; then
-      printf '[[[ Error reading file ]]]\n' >> "$OUTPUT_TXT"
-      printf 'Warning: Could not read "%s".\n' "$REL_PATH" >&2
+    printf '[[[ Error reading file ]]]\n' >> "$OUTPUT_TXT"
+    printf 'Warning: Could not read "%s".\n' "$REL_PATH" >&2
   fi
 
   # Footer
   printf '\n"""\n\n' >> "$OUTPUT_TXT"
 done
-
-printf 'Snapshot saved to "%s"\n' "$OUTPUT_TXT"
+printf 'Snapshot saved to: %s\n' "$OUTPUT_TXT"

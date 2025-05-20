@@ -8,6 +8,7 @@ from models.denoising_autoencoder import DenoisingAutoencoder
 from training.loss_functions import dae_loss
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
+from utils.data_utils import ensure_uda_data
 from data.torch_datasets import DAEDataset
 from dotenv import load_dotenv
 
@@ -73,6 +74,9 @@ if __name__ == "__main__":
 
     set_seed(train_cfg.get("seed", 42))
     device = resolve_device(train_cfg.get("device"))
+
+    max_samples = train_cfg.get("max_samples")  # Can be None
+    ensure_uda_data(output_dir="./data", max_samples=max_samples)
 
     train_dae_text(
         dataset_path=model_cfg.get("dataset_path", f"./data/{model_key}_train.jsonl"),

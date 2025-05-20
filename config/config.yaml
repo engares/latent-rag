@@ -38,7 +38,8 @@ training:
   epochs: 50
   learning_rate: 1e-3
   seed: 42
-  device: "cuda"  # "cpu" 
+  device: "cuda"  # "cpu"
+  max_samples: null # None para usar todo el dataset
 
 retrieval:
   similarity_metric: "cosine"   # opciones: cosine, mahalanobis
