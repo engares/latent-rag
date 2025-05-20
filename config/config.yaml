@@ -1,0 +1,50 @@
+project:
+  name: rag_autoencoder_tfm
+  version: "0.1"
+
+paths:
+  data_dir: "./data"
+  checkpoints_dir: "./models/checkpoints"
+  logs_dir: "./logs"
+
+embedding_model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  max_length: 256
+
+autoencoder:
+  # options: vae, dae, contrastive, none
+
+  type: "vae"
+  input_dim: 384   # Dimensión de entrada del modelo de embedding
+  latent_dim: 64
+  hidden_dim: 512
+  checkpoint: "./models/checkpoints/vae_latent64.pth"
+
+training:
+  batch_size: 128
+  epochs: 50
+  learning_rate: 1e-3
+  seed: 42
+  device: "cuda"  # "cpu" 
+
+retrieval:
+  similarity_metric: "cosine"   # opciones: cosine, mahalanobis
+  top_k: 20
+  compress_embeddings: true  # usar embeddings comprimidos
+
+generation:
+  provider: "openai"       # openai, anthropic, etc.
+  model: "gpt-4o-mini"
+  temperature: 0.3
+  max_tokens: 256
+  system_prompt_path: "./config/prompts/system_prompts.txt"
+
+
+evaluation:
+  retrieval_metrics: ["Recall@5", "MRR@10", "nDCG@10"]
+  generation_metrics: ["ROUGE-L", "BLEU", "METEOR"]
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_file: "./logs/run.log"
