@@ -11,7 +11,6 @@ from dotenv import load_dotenv
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
 
-
 def train_contrastive(
     dataset_path: str,
     input_dim: int,
@@ -26,7 +25,7 @@ def train_contrastive(
     device: str = None
 ):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training Contrastive AE on: {device}")
+    print(f"[INFO] Training on: {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
     dataset = ContrastiveDataset(dataset_path, tokenizer, max_length=max_length)
@@ -64,6 +63,7 @@ if __name__ == "__main__":
     load_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="./config/config.yaml")
+    parser.add_argument("--model", type=str, required=True, help="Model key in config.yaml: vae, dae, contrastive")
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--lr", type=float)
     parser.add_argument("--save_path", type=str)
@@ -71,20 +71,22 @@ if __name__ == "__main__":
 
     config = load_config(args.config)
     train_cfg = config.get("training", {})
-    ae_cfg = config.get("autoencoder", {})
+    model_key = args.model.lower()
+    model_cfg = config.get("models", {}).get(model_key, {})
 
     set_seed(train_cfg.get("seed", 42))
     device = resolve_device(train_cfg.get("device"))
 
     train_contrastive(
-        dataset_path=train_cfg.get("contrastive_dataset_path", "./data/uda_contrastive_train.jsonl"),
-        input_dim=ae_cfg["input_dim"],
-        latent_dim=ae_cfg.get("latent_dim", 64),
-        hidden_dim=ae_cfg.get("hidden_dim", 512),
+        dataset_path=model_cfg.get("dataset_path", f"./data/{model_key}_train.jsonl"),
+        input_dim=model_cfg.get("input_dim", 384),
+        latent_dim=model_cfg.get("latent_dim", 64),
+        hidden_dim=model_cfg.get("hidden_dim", 512),
         batch_size=train_cfg.get("batch_size", 32),
         epochs=args.epochs or train_cfg.get("epochs", 10),
         lr=args.lr or train_cfg.get("learning_rate", 1e-3),
-        model_save_path=args.save_path or ae_cfg.get("checkpoint", "./models/checkpoints/contrastive_ae.pth"),
+        model_save_path=args.save_path or model_cfg.get("checkpoint", f"./models/checkpoints/{model_key}.pth"),
         tokenizer_name=train_cfg.get("tokenizer", "sentence-transformers/all-MiniLM-L6-v2"),
-        max_length=train_cfg.get("max_length", 256)
+        max_length=train_cfg.get("max_length", 256),
+        device=device
     )
