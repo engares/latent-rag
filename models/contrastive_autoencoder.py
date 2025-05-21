@@ -1,3 +1,4 @@
+# /models/contrastive_autoencoder.py
 import torch
 import torch.nn as nn
 from models.base_autoencoder import BaseAutoencoder
@@ -16,7 +17,7 @@ class ContrastiveAutoencoder(BaseAutoencoder):
             nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, input_dim),
-            nn.Sigmoid()  # Useful if input vectors are normalized
+            # nn.Sigmoid()  # Useful if input vectors are normalized
         )
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:

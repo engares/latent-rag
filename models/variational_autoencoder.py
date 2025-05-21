@@ -1,3 +1,4 @@
+# / models/variational_autoencoder.py
 import torch
 import torch.nn as nn
 from models.base_autoencoder import BaseAutoencoder
@@ -19,7 +20,7 @@ class VariationalAutoencoder(BaseAutoencoder):
             nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, input_dim),
-            nn.Sigmoid()  # Asumimos entrada normalizada (0-1)
+            # nn.Sigmoid()  # Asumimos entrada normalizada (0-1)
         )
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:

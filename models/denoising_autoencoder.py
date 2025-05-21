@@ -1,3 +1,5 @@
+# /models/denoising_autoencoder.py
+
 import torch
 import torch.nn as nn
 from models.base_autoencoder import BaseAutoencoder
@@ -25,7 +27,7 @@ class DenoisingAutoencoder(BaseAutoencoder):
             nn.Linear(latent_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, input_dim),
-            nn.Sigmoid()  # assume inputs ∈ [0,1]; change if different scale
+            # nn.Sigmoid()  # assume inputs ∈ [0,1]; change if different scale
         )
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
