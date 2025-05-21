@@ -1,6 +1,5 @@
 # Core ML & Data Processing
 torch>=2.0.0
-torchmetrics>=1.0.0
 transformers>=4.38.0
 sentence-transformers>=2.2.2
 scikit-learn>=1.3.0
@@ -17,8 +16,8 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 
 # Evaluation Metrics (Efficient and Torch-Compatible)
-rouge-score
-sacrebleu
+rouge-score >=0.1.2
+sacrebleu>=2.5.1
 
 # Configuration & Utilities
 pyyaml>=6.0

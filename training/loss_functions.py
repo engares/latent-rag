@@ -52,13 +52,30 @@ def dae_loss(
 #  CONTRASTIVE                                                                #
 ###############################################################################
 
+
 def contrastive_loss(
     z_q: torch.Tensor,
     z_pos: torch.Tensor,
-    z_neg: torch.Tensor,
-    margin: float = 1.0,
+    *,
+    margin: float = 0.2,
+    hard_negatives: bool = True,
 ) -> torch.Tensor:
-    """Loss contrastiva con margen (triplet)."""
+    """Triplet loss con selección de negativos dentro del batch.
+
+    Si `hard_negatives` es True, usa el negativo más cercano; de lo contrario,
+    permuta `z_pos` para obtener un negativo aleatorio.
+    """
+    z_q = F.normalize(z_q, p=2, dim=1)
+    z_pos = F.normalize(z_pos, p=2, dim=1)
+
+    if hard_negatives:
+        dist_mat = torch.cdist(z_q, z_pos, p=2)
+        mask = torch.eye(dist_mat.size(0), dtype=torch.bool, device=z_q.device)
+        dist_mat.masked_fill_(mask, float("inf"))
+        neg_dist, _ = dist_mat.min(dim=1)
+    else:
+        idx = torch.randperm(z_pos.size(0), device=z_pos.device)
+        neg_dist = torch.norm(z_q - z_pos[idx], dim=1)
+
     pos_dist = torch.norm(z_q - z_pos, dim=1)
-    neg_dist = torch.norm(z_q - z_neg, dim=1)
     return F.relu(pos_dist - neg_dist + margin).mean()

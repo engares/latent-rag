@@ -41,7 +41,6 @@
 9 directories, 27 files
 
 
-
 config/config.yaml
 """
 project:
@@ -322,33 +321,153 @@ def visualize_embeddings(embeddings: torch.Tensor, labels: torch.Tensor = None, 
 
 evaluation/generation_metrics.py
 """
-import torch
-from torchmetrics.text import BLEUScore, ROUGEScore
-from typing import List, Dict
+from __future__ import annotations
 
-def compute_bleu_torch(candidates: List[str], references: List[str]) -> float:
-    metric = BLEUScore(n_gram=4)
-    return metric(candidates, [[ref] for ref in references]).item()
+"""Métricas de generación con *bootstrap* y prueba de significancia emparejada.
 
-def compute_rouge_l_torch(candidates: List[str], references: List[str]) -> float:
-    metric = ROUGEScore(rouge_keys=["rougeL"])
-    scores = metric(candidates, references)
-    return scores["rougeL_fmeasure"].item()
+Uso principal:
+--------------
+>>> mean_ci = evaluate_generation_bootstrap(refs, cands, metrics=["BLEU", "ROUGE-L"])
+>>> pval = paired_bootstrap_test(refs, sys_a, sys_b, metric="BLEU")
+"""
 
-def evaluate_generation_torch(
-    references: List[str], 
-    candidates: List[str], 
-    metrics: List[str] = ["ROUGE-L", "BLEU"]
-) -> Dict[str, float]:
-    assert len(references) == len(candidates), "El número de referencias y candidatos debe coincidir."
-    results = {}
-    
-    if "BLEU" in metrics:
-        results["BLEU"] = compute_bleu_torch(candidates, references)
-    if "ROUGE-L" in metrics:
-        results["ROUGE-L"] = compute_rouge_l_torch(candidates, references)
-    
+from collections.abc import Callable
+from typing import List, Dict, Tuple
+import numpy as np
+from sacrebleu.metrics import BLEU as _BLEUMetric
+from rouge_score import rouge_scorer
+import random
+
+###############################################################################
+#  MÉTRICAS BÁSICAS                                                           #
+###############################################################################
+
+_bleu = _BLEUMetric()
+_scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
+
+
+def compute_bleu(candidates: List[str], references: List[str]) -> float:
+    """BLEU corpus‐level sacreBLEU (0‑100)."""
+    return _bleu.corpus_score(candidates, [references]).score
+
+
+def compute_rouge_l(candidates: List[str], references: List[str]) -> float:
+    """Promedio de ROUGE‑L (F1) ×100."""
+    scores = [
+        _scorer.score(ref, cand)["rougeL"].fmeasure * 100
+        for ref, cand in zip(references, candidates)
+    ]
+    return float(np.mean(scores))
+
+
+_metric_fn: Dict[str, Callable[[List[str], List[str]], float]] = {
+    "BLEU": compute_bleu,
+    "ROUGE-L": compute_rouge_l,
+}
+
+###############################################################################
+#  BOOTSTRAP                                                                  #
+###############################################################################
+
+def _bootstrap_ci(
+    func: Callable[[List[str], List[str]], float],
+    refs: List[str],
+    cands: List[str],
+    n_samples: int = 2000,
+    alpha: float = 0.05,
+    seed: int | None = None,
+) -> Tuple[float, float, float]:
+    """Devuelve media, límite inferior y superior del IC al (1‑alpha)."""
+    if seed is not None:
+        random.seed(seed)
+    N = len(refs)
+    stats = []
+    for _ in range(n_samples):
+        idx = [random.randint(0, N - 1) for _ in range(N)]
+        stats.append(func([cands[i] for i in idx], [refs[i] for i in idx]))
+    stats_np = np.array(stats)
+    mean = stats_np.mean()
+    lower = np.percentile(stats_np, 100 * alpha / 2)
+    upper = np.percentile(stats_np, 100 * (1 - alpha / 2))
+    return mean, lower, upper
+
+
+def evaluate_generation_bootstrap(
+    references: List[str],
+    candidates: List[str],
+    metrics: List[str] | None = None,
+    n_samples: int = 2000,
+    alpha: float = 0.05,
+    seed: int | None = None,
+) -> Dict[str, Dict[str, float]]:
+    """Calcula métricas + IC al 95 % mediante bootstrap.
+
+    Retorna: {metric: {"mean": m, "ci_lower": l, "ci_upper": u}}
+    """
+    if metrics is None:
+        metrics = ["BLEU", "ROUGE-L"]
+
+    assert len(references) == len(candidates) >= 30, (
+        "Se requieren al menos 30 pares ref‑cand para un IC mínimo; se recomienda ≥1000."
+    )
+
+    results: Dict[str, Dict[str, float]] = {}
+    for m in metrics:
+        if m not in _metric_fn:
+            raise ValueError(f"Métrica '{m}' no soportada.")
+        mean, lo, hi = _bootstrap_ci(_metric_fn[m], references, candidates, n_samples, alpha, seed)
+        results[m] = {"mean": mean, "ci_lower": lo, "ci_upper": hi}
     return results
+
+###############################################################################
+#  PAIRED BOOTSTRAP SIGNIFICANCE TEST                                         #
+###############################################################################
+
+def paired_bootstrap_test(
+    references: List[str],
+    sys_a: List[str],
+    sys_b: List[str],
+    metric: str = "BLEU",
+    n_samples: int = 10000,
+    seed: int | None = None,
+) -> Dict[str, float]:
+    """Prueba de significancia emparejada (bootstrap) entre dos sistemas.
+
+    Devuelve un dict: {"diff_mean": d, "ci_lower": lo, "ci_upper": hi, "p_value": p}
+    p‑value ≈ proporción de muestras con diferencia ≤0 (o ≥0, según el signo).
+    """
+    assert len(references) == len(sys_a) == len(sys_b)
+    if seed is not None:
+        random.seed(seed)
+
+    if metric not in _metric_fn:
+        raise ValueError(f"Métrica '{metric}' no soportada.")
+    fn = _metric_fn[metric]
+
+    N = len(references)
+    diffs = []
+    for _ in range(n_samples):
+        idx = [random.randint(0, N - 1) for _ in range(N)]
+        a_score = fn([sys_a[i] for i in idx], [references[i] for i in idx])
+        b_score = fn([sys_b[i] for i in idx], [references[i] for i in idx])
+        diffs.append(a_score - b_score)
+
+    diffs_np = np.array(diffs)
+    diff_mean = diffs_np.mean()
+    ci_lower = np.percentile(diffs_np, 2.5)
+    ci_upper = np.percentile(diffs_np, 97.5)
+    # p‑value: H0: diff <= 0  (si diff_mean>0) ó diff >=0 (si diff_mean<0)
+    if diff_mean >= 0:
+        p_val = (diffs_np <= 0).mean()
+    else:
+        p_val = (diffs_np >= 0).mean()
+
+    return {
+        "diff_mean": diff_mean,
+        "ci_lower": ci_lower,
+        "ci_upper": ci_upper,
+        "p_value": p_val,
+    }
 
 """
 
@@ -574,7 +693,6 @@ main.py
 """
 import argparse
 import os
-import yaml
 import torch
 from dotenv import load_dotenv
 
@@ -588,98 +706,141 @@ from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
 
 
+def load_autoencoder(models_cfg: dict, ae_type: str = "none", device: str = "cpu"):
+    """Construye y carga el auto‑encoder solicitado.  
+    Actualmente sólo se implementa la ruta VAE; amplíe aquí para DAE/CAE."""
+    if ae_type == "none" or ae_type not in models_cfg:
+        return None
+
+    if ae_type == "vae":
+        mcfg = models_cfg["vae"]
+        model = VariationalAutoencoder(
+            input_dim=mcfg["input_dim"],
+            latent_dim=mcfg["latent_dim"],
+            hidden_dim=mcfg.get("hidden_dim", 512),
+        ).to(device)
+        model.load_state_dict(torch.load(mcfg["checkpoint"], map_location=device))
+        model.eval()
+        return model
+
+    raise ValueError(f"Tipo de auto‑encoder '{ae_type}' no soportado todavía.")
+
 
 def main() -> None:
-    # ------------------ CLI Arguments ------------------
-    parser = argparse.ArgumentParser(description="RAG Pipeline with Autoencoders for TFM")
-    parser.add_argument("--config", type=str, default="./config/config.yaml", help="Path to YAML configuration file")
-    parser.add_argument("--visualize-embeddings", action="store_true", help="Visualize compressed embeddings using t‑SNE")
-    parser.add_argument("--evaluate-autoencoder", action="store_true", help="Compute Reconstruction Loss after compression")
+    # ---------------- CLI ----------------
+    parser = argparse.ArgumentParser(
+        description="RAG Pipeline with Autoencoders for TFM",
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="./config/config.yaml",
+        help="Ruta al fichero YAML de configuración",
+    )
+    parser.add_argument(
+        "--ae-type",
+        choices=["none", "vae"],
+        default="vae",
+        help="Tipo de auto‑encoder a emplear (none desactiva la compresión)",
+    )
+    parser.add_argument(
+        "--visualize-embeddings",
+        action="store_true",
+        help="Visualizar embeddings comprimidos con t‑SNE",
+    )
+    parser.add_argument(
+        "--evaluate-autoencoder",
+        action="store_true",
+        help="Calcular pérdida de reconstrucción tras la compresión",
+    )
     args = parser.parse_args()
 
-    # ------------------ Configuration ------------------
+    # --------------- Configuración ---------------
     load_dotenv()
-    config = load_config(args.config)
+    cfg = load_config(args.config)
 
-    # ------------------ Embeddings and Autoencoder ------------------
-    ae_cfg = config.get("autoencoder", {})
-    embedding_model = ae_cfg.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
+    # Resolución de dispositivo y semilla
+    device = resolve_device(cfg.get("training", {}).get("device"))
+    set_seed(cfg.get("training", {}).get("seed", 42))
 
-    # Load Autoencoder checkpoint if requested
-    autoencoder = None
-    if ae_cfg.get("type", "none") == "vae":
-        autoencoder = VariationalAutoencoder(ae_cfg["input_dim"], ae_cfg["latent_dim"])
-        autoencoder.load_state_dict(torch.load(ae_cfg["checkpoint"]))
+    # --------------- Embedding model ---------------
+    emb_model_name = cfg.get("embedding_model", {}).get(
+        "name", "sentence-transformers/all-MiniLM-L6-v2"
+    )
 
-    # Create embedder (raw or compressed)
-    compressor = EmbeddingCompressor(base_model_name=embedding_model, autoencoder=autoencoder)
+    # --------------- Autoencoder ---------------
+    ae = load_autoencoder(cfg.get("models", {}), args.ae_type, device)
 
-    # -----------------------------------------------------------------
-    # Demo corpus & query — replace with dataset loader in real pipeline
-    # -----------------------------------------------------------------
+    # --------------- Compressor ---------------
+    compressor = EmbeddingCompressor(
+        base_model_name=emb_model_name, autoencoder=ae, device=device
+    )
+
+    # --------- Corpus de demostración (reemplazar) ---------
     corpus = [
         "Paris is the capital of France.",
         "The Pythagorean theorem applies to right‑angled triangles.",
         "The Spanish Civil War began in 1936.",
         "GPT is a language model developed by OpenAI.",
-        "Autoencoders allow nonlinear compression."
+        "Autoencoders allow nonlinear compression.",
     ]
     query = ["Which model does OpenAI use for text generation?"]
+    
 
-    # -----------------------------------------------------------------
-    # Encode texts
-    # -----------------------------------------------------------------
-    doc_embeddings = compressor.encode_text(corpus, compress=True)
-    query_embedding = compressor.encode_text(query, compress=True)
+    # --------------- Codificación de textos ---------------
+    doc_emb = compressor.encode_text(corpus, compress=True)
+    q_emb = compressor.encode_text(query, compress=True)
 
-    # -----------------------------------------------------------------
-    # Optional: autoencoder diagnostics
-    # -----------------------------------------------------------------
-    if args.evaluate_autoencoder:
+    # --------------- Diagnósticos opcionales ---------------
+    if args.evaluate_autoencoder and ae is not None:
         from evaluation.autoencoder_metrics import evaluate_reconstruction_loss
-        print("[INFO] Autoencoder Reconstruction Loss evaluation enabled.")
-        # Example: compute loss on a small batch (requires original x)
-        # loss = evaluate_reconstruction_loss(x_batch, x_reconstructed)
+
+        print("[INFO] Evaluando reconstrucción…")
+        recon = ae(doc_emb.to(device))
+        loss = evaluate_reconstruction_loss(doc_emb, recon.detach().cpu())
+        print(f"Reconstruction MSE: {loss:.4f}")
 
     if args.visualize_embeddings:
         from evaluation.autoencoder_metrics import visualize_embeddings
-        print("[INFO] Embedding visualization enabled.")
-        visualize_embeddings(doc_embeddings)
 
-    # ------------------ Retrieval ------------------
-    retrieval_cfg = config.get("retrieval", {})  # <‑‑ now actually used
-    top_k = retrieval_cfg.get("top_k", 5)
-    similarity_metric = retrieval_cfg.get("similarity_metric", "cosine")
+        visualize_embeddings(doc_emb)
 
-    retrieved_docs = retrieve_top_k(query_embedding, doc_embeddings, corpus, k=top_k, metric=similarity_metric)
-    retrieved_ids = [doc for doc, _ in retrieved_docs]
+    # --------------- Recuperación ---------------
+    retr_cfg = cfg.get("retrieval", {})
+    top_k = retr_cfg.get("top_k", 5)
+    sim_metric = retr_cfg.get("similarity_metric", "cosine")
 
-    # ------------------ Retrieval Evaluation ------------------
-    relevant_docs = ["GPT is a language model developed by OpenAI."]
-    retrieval_results = evaluate_retrieval(retrieved_ids, relevant_docs)
+    retrieved = retrieve_top_k(q_emb, doc_emb, corpus, k=top_k, metric=sim_metric)
+    retrieved_docs, _ = zip(*retrieved)
 
+    # Evaluación de recuperación (ejemplo)
+    relevant = ["GPT is a language model developed by OpenAI."]
+    ret_metrics = evaluate_retrieval(list(retrieved_docs), relevant)
     print("\n[RETRIEVAL RESULTS]")
-    for metric, value in retrieval_results.items():
-        print(f"{metric}: {value:.4f}")
+    for m, v in ret_metrics.items():
+        print(f"{m}: {v:.4f}")
 
-    # ------------------ Generation ------------------
-    generator = RAGGenerator(config_path=args.config)
-    generated_response = generator.generate(query[0], [doc for doc, _ in retrieved_docs])
-
-    print("\n[GENERATED RESPONSE]")
-    print(generated_response)
-
-    # ------------------ Generation Evaluation ------------------
-    generation_cfg = config.get("evaluation", {}).get("generation_metrics", ["ROUGE-L", "BLEU"])
-    gen_results = evaluate_generation_torch(
-        references=relevant_docs,
-        candidates=[generated_response],
-        metrics=generation_cfg,
+    # --------------- Generación ---------------
+    gen_cfg = cfg.get("generation", {})
+    sys_prompt_path = gen_cfg.get(
+        "system_prompt_path", "./config/prompts/system_prompt.txt"
+    )
+    generator = RAGGenerator(
+        config_path=args.config,
+        llm={"system_prompt_path": sys_prompt_path},  # override incoherencia YAML
     )
 
+    answer = generator.generate(query[0], list(retrieved_docs))
+    print("\n[GENERATED RESPONSE]\n", answer)
+
+    # Evaluación (demo)
+    gen_metrics_cfg = cfg.get("evaluation", {}).get(
+        "generation_metrics", ["ROUGE-L", "BLEU"]
+    )
+    gen_scores = evaluate_generation_torch(references=relevant, candidates=[answer], metrics=gen_metrics_cfg)
     print("\n[GENERATION RESULTS]")
-    for metric, value in gen_results.items():
-        print(f"{metric}: {value:.4f}")
+    for m, v in gen_scores.items():
+        print(f"{m}: {v:.4f}")
 
 
 if __name__ == "__main__":
@@ -863,7 +1024,8 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 
 # Evaluation Metrics (Efficient and Torch-Compatible)
-rouge>=1.0.1
+rouge-score
+sacrebleu
 
 # Configuration & Utilities
 pyyaml>=6.0
@@ -919,6 +1081,10 @@ class EmbeddingCompressor:
 
 retrieval/retriever.py
 """
+# /retrieval/retriever.py
+
+from __future__ import annotations
+
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -927,43 +1093,110 @@ from typing import List, Tuple, Literal
 
 SimilarityMetric = Literal["cosine", "euclidean", "mahalanobis"]
 
-def cosine_similarity_matrix(query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor) -> np.ndarray:
-    """Calcula la matriz de similitud coseno entre embeddings de consulta y documentos."""
+###############################################################################
+#  MATRICES DE SIMILITUD                                                      #
+###############################################################################
+
+def cosine_similarity_matrix(
+    query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor
+) -> np.ndarray:
+    """Matriz [Q × N] con similitud coseno."""
     q_norm = F.normalize(query_embeddings, p=2, dim=1)
     d_norm = F.normalize(doc_embeddings, p=2, dim=1)
-    return torch.mm(q_norm, d_norm.T).cpu().numpy()
+    sim = torch.mm(q_norm, d_norm.T)  # [Q, N]
+    return sim.cpu().numpy()
 
-def euclidean_similarity_matrix(query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor) -> np.ndarray:
-    """Calcula la matriz de similitud inversa de distancias euclídeas."""
+
+def euclidean_similarity_matrix(
+    query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor
+) -> np.ndarray:
+    """Matriz [Q × N] con "+similitud" inversa a la distancia euclídea."""
     q = query_embeddings.unsqueeze(1)  # [Q, 1, D]
-    d = doc_embeddings.unsqueeze(0)    # [1, N, D]
-    distances = torch.norm(q - d, dim=2)  # [Q, N]
-    return -distances.cpu().numpy()  # Negative so greater values, greater similarity
-
-def mahalanobis_similarity_matrix(query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor) -> np.ndarray:
-    """Calcula la matriz de similitud inversa de distancias de Mahalanobis."""
-    doc_np = doc_embeddings.cpu().numpy()
-    cov = EmpiricalCovariance().fit(doc_np)
-    mahal_dist = cov.mahalanobis(query_embeddings.cpu().numpy(), doc_np)
-    return -mahal_dist  # NSame as eucliden
+    d = doc_embeddings.unsqueeze(0)  # [1, N, D]
+    dist = torch.norm(q - d, dim=2)  # [Q, N]
+    return (-dist).cpu().numpy()  # valores altos = más similares
 
 
-def compute_similarity( query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor, metric: SimilarityMetric = "cosine") -> np.ndarray:
-    """Calcula la matriz de similitud entre embeddings de consulta y documentos."""
-    if metric == "cosine":
-        return cosine_similarity_matrix(query_embeddings, doc_embeddings)
-    elif metric == "euclidean":
-        return euclidean_similarity_matrix(query_embeddings, doc_embeddings)
-    elif metric == "mahalanobis":
-        return mahalanobis_similarity_matrix(query_embeddings, doc_embeddings)
-    else:
+def mahalanobis_similarity_matrix(
+    query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor, eps: float = 1e-6
+) -> np.ndarray:
+    """Matriz [Q × N] con similitud inversa de la distancia de Mahalanobis.
+
+    *Se ajusta la matriz de covarianza exclusivamente sobre los documentos* para
+    preservar la simetría deseada en el espacio de recuperación.
+    """
+    # -- Datos a NumPy -------------------------------------------------------
+    d_np: np.ndarray = doc_embeddings.cpu().numpy()
+    q_np: np.ndarray = query_embeddings.cpu().numpy()
+
+    # -- Precisión (inversa de la covarianza) -------------------------------
+    # EmpiricalCovariance añade regularización de Ledoit‑Wolf si el sistema lo
+    # necesita, pero incluimos un término eps para garantizar invertibilidad.
+    emp = EmpiricalCovariance(assume_centered=False).fit(d_np)
+    VI: np.ndarray = emp.precision_ + eps * np.eye(d_np.shape[1], dtype=np.float64)
+
+    # -- Distancias ----------------------------------------------------------
+    diff = q_np[:, None, :] - d_np[None, :, :]  # [Q, N, D]
+    # einsum: (q n d, d d, q n d) → (q n)
+    dist = np.einsum("qnd,dd,qnd->qn", diff, VI, diff, optimize=True)
+
+    # -- Convertir a "similitud" (negativo de la distancia) -----------------
+    sim = -dist  # altos valores ⇒ mayor similitud
+    return sim.astype(np.float32)
+
+
+###############################################################################
+#  FRONT‑END DE RECUPERACIÓN                                                  #
+###############################################################################
+
+def compute_similarity(
+    query_embeddings: torch.Tensor,
+    doc_embeddings: torch.Tensor,
+    metric: SimilarityMetric = "cosine",
+) -> np.ndarray:
+    """Devuelve matriz [Q × N] según la métrica solicitada y valida formas."""
+
+    if query_embeddings.dim() == 1:
+        query_embeddings = query_embeddings.unsqueeze(0)
+    if doc_embeddings.dim() == 1:
+        doc_embeddings = doc_embeddings.unsqueeze(0)
+
+    funcs = {
+        "cosine": cosine_similarity_matrix,
+        "euclidean": euclidean_similarity_matrix,
+        "mahalanobis": mahalanobis_similarity_matrix,
+    }
+
+    if metric not in funcs:
         raise ValueError(f"Métrica de similitud '{metric}' no soportada.")
 
-def retrieve_top_k( query_embedding: torch.Tensor, doc_embeddings: torch.Tensor, doc_texts: List[str], k: int = 5, metric: SimilarityMetric = "cosine" ) -> List[Tuple[str, float]]:
-    """Recupera los Top-k documentos más similares."""
-    sim_scores = compute_similarity(query_embedding, doc_embeddings, metric)
-    top_indices = sim_scores[0].argsort()[::-1][:k]  # Top-k mayores valores
-    return [(doc_texts[i], sim_scores[0][i]) for i in top_indices]
+    sim = funcs[metric](query_embeddings, doc_embeddings)
+
+    # -------- Validación de forma -----------------------------------------
+    q, d = query_embeddings.shape[0], doc_embeddings.shape[0]
+    if sim.shape != (q, d):
+        raise RuntimeError(
+            f"Shape mismatch: expected ({q}, {d}) got {sim.shape} for metric '{metric}'."
+        )
+    return sim
+
+
+def retrieve_top_k(
+    query_embedding: torch.Tensor,
+    doc_embeddings: torch.Tensor,
+    doc_texts: List[str],
+    k: int = 5,
+    metric: SimilarityMetric = "cosine",
+) -> List[Tuple[str, float]]:
+    """Recupera los *k* documentos con mayor similitud."""
+
+    sim_scores = compute_similarity(query_embedding, doc_embeddings, metric)  # [Q, N]
+    # Suponemos única consulta (Q = 1) para esta utilidad.
+    if sim_scores.shape[0] != 1:
+        raise ValueError("Esta función está pensada para una única consulta.")
+
+    top_idx = sim_scores[0].argsort()[::-1][:k]
+    return [(doc_texts[i], float(sim_scores[0, i])) for i in top_idx]
 
 """
 
@@ -1047,44 +1280,101 @@ printf 'Snapshot saved to: %s\n' "$OUTPUT_TXT"
 
 training/loss_functions.py
 """
+# /training/loss_functions.py
+
 import torch
 import torch.nn.functional as F
 
 
-def vae_loss(x_reconstructed: torch.Tensor, x: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-    """Standard VAE loss: BCE + KL divergence."""
-    recon_loss = F.binary_cross_entropy(x_reconstructed, x, reduction="sum")
+###############################################################################
+#  VAE                                                                        #
+###############################################################################
+
+def vae_loss(
+    x_reconstructed: torch.Tensor,
+    x: torch.Tensor,
+    mu: torch.Tensor,
+    logvar: torch.Tensor,
+    reduction: str = "sum",
+) -> torch.Tensor:
+    """Pérdida estándar VAE = mse + KL.
+
+    Parámetros
+    ----------
+    x_reconstructed : Tensor
+        Salida del decodificador.
+    x : Tensor
+        Embedding original (target).
+    mu, logvar : Tensor
+        Parámetros de la distribución latente.
+    reduction : str
+        Reducción a emplear en MSE ("sum" o "mean").
+    """
+    # Reconstrucción (MSE)
+    recon_loss = F.mse_loss(x_reconstructed, x, reduction=reduction)
+
+    # Divergencia KL
     kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
     return recon_loss + kl_loss
 
+###############################################################################
+#  DAE                                                                        #
+###############################################################################
 
-def dae_loss(x_reconstructed: torch.Tensor, x_clean: torch.Tensor, reduction: str = "mean") -> torch.Tensor:
-    """Mean‑squared error reconstruction loss for Denoising Autoencoders."""
+def dae_loss(
+    x_reconstructed: torch.Tensor,
+    x_clean: torch.Tensor,
+    reduction: str = "mean",
+) -> torch.Tensor:
+    """Mean‑squared error para Denoising Auto‑Encoders."""
     return F.mse_loss(x_reconstructed, x_clean, reduction=reduction)
 
-def contrastive_loss(z_q: torch.Tensor, z_pos: torch.Tensor, z_neg: torch.Tensor, margin: float = 1.0) -> torch.Tensor:
-    """Contrastive loss: encourages z_q to be closer to z_pos than to z_neg by at least the margin."""
+###############################################################################
+#  CONTRASTIVE                                                                #
+###############################################################################
+
+def contrastive_loss(
+    z_q: torch.Tensor,
+    z_pos: torch.Tensor,
+    z_neg: torch.Tensor,
+    margin: float = 1.0,
+) -> torch.Tensor:
+    """Loss contrastiva con margen (triplet)."""
     pos_dist = torch.norm(z_q - z_pos, dim=1)
     neg_dist = torch.norm(z_q - z_neg, dim=1)
-    loss = F.relu(pos_dist - neg_dist + margin)
-    return loss.mean()
+    return F.relu(pos_dist - neg_dist + margin).mean()
 
 """
 
 training/train_cae.py
 """
-# training/train_cae.py
-import argparse, os, torch
-from torch.utils.data import DataLoader
+# training/train_cae.py – Contrastive Auto‑Encoder con hard‑negative mining y validación
+
+from __future__ import annotations
+
+import argparse
+import os
+import random
+from typing import Optional, Tuple
+
+import torch
+from torch.utils.data import DataLoader, Subset
+
+from data.torch_datasets import EmbeddingTripletDataset
 from models.contrastive_autoencoder import ContrastiveAutoencoder
 from training.loss_functions import contrastive_loss
-from data.torch_datasets import EmbeddingTripletDataset
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
-from utils.data_utils import ensure_uda_data
+from utils.data_utils import ensure_uda_data, split_dataset
 from dotenv import load_dotenv
 
-# ----------------------------------------------------------------------
+
+
+###############################################################################
+#  ENTRENAMIENTO                                                               #
+###############################################################################
+
 def train_cae(
     dataset_path: str,
     input_dim: int,
@@ -1094,95 +1384,161 @@ def train_cae(
     epochs: int,
     lr: float,
     model_save_path: str,
-    device: str | None = None,
+    hard_negatives: bool = True,
+    val_split: float = 0.1,
+    patience: Optional[int] = 5,
+    margin: float = 0.2,
+    device: Optional[str] = None,
 ):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training Contrastive AE on {device}")
+    print(
+        f"[INFO] Training Contrastive AE on {device} | hard_negatives={hard_negatives} | val_split={val_split}"
+    )
 
-    dataset    = EmbeddingTripletDataset(dataset_path)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    # ---------------- Dataset ---------------------------
+    full_ds = EmbeddingTripletDataset(dataset_path)
+    train_ds, val_ds = split_dataset(full_ds, val_split=val_split)
+    dl_train = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    dl_val = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
 
+    # ---------------- Model & Optimizer -----------------
     model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
     optim = torch.optim.Adam(model.parameters(), lr=lr)
 
-    model.train()
-    for ep in range(epochs):
-        tot = 0.0
-        for batch in dataloader:
-            q   = batch["q"].to(device)
-            pos = batch["p"].to(device)
-            neg = batch["n"].to(device)
+    best_val = float("inf")
+    no_improve = 0
+
+    # ---------------- Training Loop ---------------------
+    for epoch in range(1, epochs + 1):
+        model.train()
+        running = 0.0
+        for batch in dl_train:
+            q = batch["q"].to(device)
+            p = batch["p"].to(device)
 
             optim.zero_grad()
-            z_q   = model.encode(q)
-            z_pos = model.encode(pos)
-            z_neg = model.encode(neg)
-            loss  = contrastive_loss(z_q, z_pos, z_neg)
+            z_q = model.encode(q)
+            z_pos = model.encode(p)
+            loss = contrastive_loss(z_q, z_pos, margin=margin, hard_negatives=hard_negatives)
             loss.backward()
             optim.step()
+            running += loss.item() * q.size(0)
 
-            tot += loss.item()
+        train_loss = running / len(train_ds)
 
-        print(f"[Epoch {ep+1}/{epochs}] Loss: {tot/len(dataset):.4f}")
+        # ---------------- Validation --------------------
+        model.eval()
+        with torch.no_grad():
+            val_running = 0.0
+            for batch in dl_val:
+                q = batch["q"].to(device)
+                p = batch["p"].to(device)
+                z_q = model.encode(q)
+                z_pos = model.encode(p)
+                vloss = contrastive_loss(z_q, z_pos, margin=margin, hard_negatives=hard_negatives)
+                val_running += vloss.item() * q.size(0)
+            val_loss = val_running / len(val_ds)
 
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    torch.save(model.state_dict(), model_save_path)
-    print(f"[OK] Modelo guardado → {model_save_path}")
+        print(
+            f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}"
+        )
 
-# ----------------------------------------------------------------------
+        # ---------------- Early stopping ---------------
+        if val_loss < best_val - 1e-4:  # pequeña tolerancia
+            best_val = val_loss
+            no_improve = 0
+            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+            torch.save(model.state_dict(), model_save_path)
+            print(f"  -> Nueva mejor val_loss. Checkpoint guardado en {model_save_path}")
+        else:
+            no_improve += 1
+            if patience and no_improve >= patience:
+                print("[EARLY STOP] Sin mejora en validación.")
+                break
+
+    print(f"[DONE] Mejor val_loss = {best_val:.6f}")
+
+###############################################################################
+#  CLI                                                                        #
+###############################################################################
+
 if __name__ == "__main__":
     load_dotenv()
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="./config/config.yaml")
-    ap.add_argument("--model",  required=True, help="contrastive | vae | dae")
-    ap.add_argument("--epochs", type=int)
-    ap.add_argument("--lr",     type=float)
-    ap.add_argument("--save_path")
-    args = ap.parse_args()
 
-    cfg        = load_config(args.config)
-    train_cfg  = cfg["training"]
-    model_cfg  = cfg["models"][args.model.lower()]
+    parser = argparse.ArgumentParser(description="Train Contrastive Auto‑Encoder (CAE)")
+    parser.add_argument("--config", default="./config/config.yaml", help="Ruta YAML de configuración")
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--save_path")
+    parser.add_argument("--batch_size", type=int)
+    parser.add_argument("--val_split", type=float, default=0.1, help="Proporción para validación")
+    parser.add_argument("--patience", type=int, default=5, help="Paciencia early‑stopping; 0 = off")
+    parser.add_argument("--no-hard-negatives", action="store_true")
+    parser.add_argument("--margin", type=float, default=0.2)
+    args = parser.parse_args()
+
+    # ---------------- Config ---------------------------
+    cfg = load_config(args.config)
+    train_cfg = cfg.get("training", {})
+    model_cfg = cfg.get("models", {}).get("contrastive", {})
 
     set_seed(train_cfg.get("seed", 42))
     device = resolve_device(train_cfg.get("device"))
 
-    # genera embeddings si hace falta
+    # ---------------- Embeddings UDA -------------------
     ensure_uda_data(
         output_dir="./data",
         max_samples=train_cfg.get("max_samples"),
-        base_model_name=cfg["embedding_model"]["name"],
+        base_model_name=cfg.get("embedding_model", {})["name"],
     )
 
+    # ---------------- Entrenamiento -------------------
     train_cae(
-        dataset_path   = model_cfg.get("dataset_path", "./data/uda_contrastive_embeddings.pt"),
-        input_dim      = model_cfg.get("input_dim", 384),
-        latent_dim     = model_cfg.get("latent_dim", 64),
-        hidden_dim     = model_cfg.get("hidden_dim", 512),
-        batch_size     = train_cfg.get("batch_size", 32),
-        epochs         = args.epochs or train_cfg.get("epochs", 10),
-        lr             = args.lr or train_cfg.get("learning_rate", 1e-3),
-        model_save_path= args.save_path or model_cfg.get(
-                            "checkpoint", "./models/checkpoints/contrastive_ae.pth"),
-        device         = device,
+        dataset_path=model_cfg.get("dataset_path", "./data/uda_contrastive_embeddings.pt"),
+        input_dim=model_cfg.get("input_dim", 384),
+        latent_dim=model_cfg.get("latent_dim", 64),
+        hidden_dim=model_cfg.get("hidden_dim", 512),
+        batch_size=args.batch_size or train_cfg.get("batch_size", 256),
+        epochs=args.epochs or train_cfg.get("epochs", 20),
+        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path=args.save_path or model_cfg.get(
+            "checkpoint", "./models/checkpoints/contrastive_ae.pth"
+        ),
+        hard_negatives=not args.no_hard_negatives,
+        val_split=args.val_split,
+        patience=None if args.patience == 0 else args.patience,
+        margin=args.margin,
+        device=device,
     )
 
 """
 
 training/train_dae.py
 """
-# training/train_dae.py
-import argparse, os, torch
-from torch.utils.data import DataLoader
+# training/train_dae.py – Denoising Auto‑Encoder con validación y early‑stopping
+
+from __future__ import annotations
+
+import argparse
+import os
+import random
+from typing import Optional, Tuple
+
+import torch
+from torch.utils.data import DataLoader, Subset
+
+from data.torch_datasets import EmbeddingDAEDataset
 from models.denoising_autoencoder import DenoisingAutoencoder
 from training.loss_functions import dae_loss
-from data.torch_datasets import EmbeddingDAEDataset
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
-from utils.data_utils import ensure_uda_data
+from utils.data_utils import ensure_uda_data, split_dataset
 from dotenv import load_dotenv
 
-# ----------------------------------------------------------------------
+###############################################################################
+#  ENTRENAMIENTO                                                              #
+###############################################################################
+
 def train_dae(
     dataset_path: str,
     input_dim: int,
@@ -1192,92 +1548,147 @@ def train_dae(
     epochs: int,
     lr: float,
     model_save_path: str,
-    device: str | None = None,
+    val_split: float = 0.1,
+    patience: Optional[int] = 5,
+    device: Optional[str] = None,
 ):
+    """Entrena un Denoising Auto‑Encoder con split de validación y early‑stopping."""
+
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training Denoising AE on {device}")
+    print(f"[INFO] Training DAE on {device} | val_split={val_split}")
 
-    ds  = EmbeddingDAEDataset(dataset_path)
-    dl  = DataLoader(ds, batch_size=batch_size, shuffle=True)
+    # ---------------- Dataset --------------------------
+    full_ds = EmbeddingDAEDataset(dataset_path)
+    train_ds, val_ds = split_dataset(full_ds, val_split=val_split)
+    dl_train = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    dl_val = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
 
+    # ---------------- Model & Optimizer ----------------
     model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
     optim = torch.optim.Adam(model.parameters(), lr=lr)
 
-    model.train()
-    for ep in range(epochs):
-        tot = 0.0
-        for batch in dl:
-            x_noisy  = batch["x"].to(device)
-            x_clean  = batch["y"].to(device)
+    best_val = float("inf")
+    no_improve = 0
+
+    # ---------------- Training Loop -------------------
+    for epoch in range(1, epochs + 1):
+        model.train()
+        running = 0.0
+        for batch in dl_train:
+            x_noisy = batch["x"].to(device)
+            x_clean = batch["y"].to(device)
 
             optim.zero_grad()
-            x_recon  = model(x_noisy)
-            loss     = dae_loss(x_recon, x_clean)
+            x_rec = model(x_noisy)
+            loss = dae_loss(x_rec, x_clean, reduction="mean")
             loss.backward()
             optim.step()
-            tot += loss.item()
+            running += loss.item() * x_noisy.size(0)
 
-        print(f"[Epoch {ep+1}/{epochs}] Loss: {tot/len(ds):.4f}")
+        train_loss = running / len(train_ds)
 
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    torch.save(model.state_dict(), model_save_path)
-    print(f"[OK] Modelo guardado → {model_save_path}")
+        # ---------------- Validation ------------------
+        model.eval()
+        with torch.no_grad():
+            val_running = 0.0
+            for batch in dl_val:
+                x_noisy = batch["x"].to(device)
+                x_clean = batch["y"].to(device)
+                x_rec = model(x_noisy)
+                vloss = dae_loss(x_rec, x_clean, reduction="mean")
+                val_running += vloss.item() * x_noisy.size(0)
+            val_loss = val_running / len(val_ds)
 
-# ----------------------------------------------------------------------
+        print(f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}")
+
+        # ---------------- Early Stopping --------------
+        if val_loss < best_val - 1e-4:
+            best_val = val_loss
+            no_improve = 0
+            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+            torch.save(model.state_dict(), model_save_path)
+            print(f"  -> Nuevo mejor val_loss. Checkpoint guardado en {model_save_path}")
+        else:
+            no_improve += 1
+            if patience and no_improve >= patience:
+                print("[EARLY STOP] Sin mejora en validación.")
+                break
+
+    print(f"[DONE] Mejor val_loss = {best_val:.6f}")
+
+###############################################################################
+#  CLI                                                                        #
+###############################################################################
+
 if __name__ == "__main__":
     load_dotenv()
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default="./config/config.yaml")
-    ap.add_argument("--model",  required=True, help="dae | vae | contrastive")
-    ap.add_argument("--epochs", type=int)
-    ap.add_argument("--lr",     type=float)
-    ap.add_argument("--save_path")
-    args = ap.parse_args()
 
-    cfg        = load_config(args.config)
-    train_cfg  = cfg["training"]
-    model_cfg  = cfg["models"][args.model.lower()]
+    parser = argparse.ArgumentParser(description="Train Denoising Auto‑Encoder (DAE)")
+    parser.add_argument("--config", default="./config/config.yaml")
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--save_path")
+    parser.add_argument("--batch_size", type=int)
+    parser.add_argument("--val_split", type=float, default=0.1)
+    parser.add_argument("--patience", type=int, default=5)
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    train_cfg = cfg.get("training", {})
+    model_cfg = cfg.get("models", {}).get("dae", {})
 
     set_seed(train_cfg.get("seed", 42))
     device = resolve_device(train_cfg.get("device"))
 
-    # Asegúrate de tener los ficheros .pt
+    # Garantizar embeddings UDA
     ensure_uda_data(
         output_dir="./data",
         max_samples=train_cfg.get("max_samples"),
-        base_model_name=cfg["embedding_model"]["name"],
+        base_model_name=cfg.get("embedding_model", {})["name"],
     )
 
     train_dae(
-        dataset_path = model_cfg.get("dataset_path", "./data/uda_dae_embeddings.pt"),
-        input_dim = model_cfg.get("input_dim", 384),
-        latent_dim = model_cfg.get("latent_dim", 64),
-        hidden_dim = model_cfg.get("hidden_dim", 512),
-        batch_size = train_cfg.get("batch_size", 32),
-        epochs = args.epochs or train_cfg.get("epochs", 10),
-        lr  = args.lr or train_cfg.get("learning_rate", 1e-3),
-        model_save_path= args.save_path or model_cfg.get(
-                            "checkpoint", "./models/checkpoints/dae_text.pth"),
-        device  = device
+        dataset_path=model_cfg.get("dataset_path", "./data/uda_dae_embeddings.pt"),
+        input_dim=model_cfg.get("input_dim", 384),
+        latent_dim=model_cfg.get("latent_dim", 64),
+        hidden_dim=model_cfg.get("hidden_dim", 512),
+        batch_size=args.batch_size or train_cfg.get("batch_size", 256),
+        epochs=args.epochs or train_cfg.get("epochs", 20),
+        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path=args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/dae_text.pth"),
+        val_split=args.val_split,
+        patience=None if args.patience == 0 else args.patience,
+        device=device,
     )
 
 """
 
 training/train_vae.py
 """
-# /training/train_vae.py
-# training/train_vae.py
-import argparse, os, torch, yaml
-from torch.utils.data import DataLoader
-from models.variational_autoencoder import VariationalAutoencoder
+# training/train_vae.py – Variational Auto‑Encoder con validación y early‑stopping
+
+from __future__ import annotations
+
+import argparse
+import os
+import random
+from typing import Optional, Tuple
+
+import torch
+from torch.utils.data import DataLoader, Subset
+
 from data.torch_datasets import EmbeddingVAEDataset
+from models.variational_autoencoder import VariationalAutoencoder
 from training.loss_functions import vae_loss
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
-from utils.data_utils import ensure_uda_data
+from utils.data_utils import ensure_uda_data, split_dataset  # split util añadido
 from dotenv import load_dotenv
 
-# ------------------- Entrenamiento ----------------------------------------
+###############################################################################
+#  ENTRENAMIENTO                                                              #
+###############################################################################
+
 def train_vae(
     dataset_path: str,
     input_dim: int,
@@ -1287,73 +1698,117 @@ def train_vae(
     epochs: int,
     lr: float,
     model_save_path: str,
-    device: str | None = None,
+    val_split: float = 0.1,
+    patience: Optional[int] = 5,
+    device: Optional[str] = None,
 ):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training VAE on: {device}")
+    print(f"[INFO] Training VAE on {device} | val_split={val_split}")
 
-    dataset   = EmbeddingVAEDataset(dataset_path)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    # ---------------- Dataset ---------------------------
+    full_ds = EmbeddingVAEDataset(dataset_path)
+    train_ds, val_ds = split_dataset(full_ds, val_split=val_split)
+    dl_train = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    dl_val = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
 
+    # ---------------- Model & Optimizer -----------------
     model = VariationalAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optim = torch.optim.Adam(model.parameters(), lr=lr)
 
-    model.train()
-    for epoch in range(epochs):
-        total = 0.0
-        for batch in dataloader:
-            x_in  = batch["input"].to(device)
+    best_val = float("inf")
+    no_improve = 0
+
+    # ---------------- Training Loop ---------------------
+    for epoch in range(1, epochs + 1):
+        model.train()
+        running = 0.0
+        for batch in dl_train:
+            x_in = batch["input"].to(device)
             x_tar = batch["target"].to(device)
 
-            optimizer.zero_grad()
-            x_recon, mu, logvar = model(x_in)
-            loss = vae_loss(x_recon, x_tar, mu, logvar)
+            optim.zero_grad()
+            x_rec, mu, logvar = model(x_in)
+            loss = vae_loss(x_rec, x_tar, mu, logvar, reduction="mean")
             loss.backward()
-            optimizer.step()
+            optim.step()
+            running += loss.item() * x_in.size(0)
 
-            total += loss.item()
+        train_loss = running / len(train_ds)
 
-        print(f"[Epoch {epoch+1}/{epochs}] Loss: {total/len(dataset):.4f}")
+        # ---------------- Validation --------------------
+        model.eval()
+        with torch.no_grad():
+            val_running = 0.0
+            for batch in dl_val:
+                x_in = batch["input"].to(device)
+                x_tar = batch["target"].to(device)
+                x_rec, mu, logvar = model(x_in)
+                vloss = vae_loss(x_rec, x_tar, mu, logvar, reduction="mean")
+                val_running += vloss.item() * x_in.size(0)
+            val_loss = val_running / len(val_ds)
 
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    torch.save(model.state_dict(), model_save_path)
-    print(f"[OK] Modelo guardado → {model_save_path}")
+        print(f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}")
 
-# ------------------- CLI ---------------------------------------------------
+        # ---------------- Early stopping ---------------
+        if val_loss < best_val - 1e-4:
+            best_val = val_loss
+            no_improve = 0
+            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+            torch.save(model.state_dict(), model_save_path)
+            print(f"  -> Nuevo mejor val_loss. Checkpoint guardado en {model_save_path}")
+        else:
+            no_improve += 1
+            if patience and no_improve >= patience:
+                print("[EARLY STOP] Sin mejora en validación.")
+                break
+
+    print(f"[DONE] Mejor val_loss = {best_val:.6f}")
+
+###############################################################################
+#  CLI                                                                        #
+###############################################################################
+
 if __name__ == "__main__":
     load_dotenv()
-    parser = argparse.ArgumentParser()
+
+    parser = argparse.ArgumentParser(description="Train Variational Auto‑Encoder (VAE)")
     parser.add_argument("--config", default="./config/config.yaml")
-    parser.add_argument("--model",  required=True, help="vae | dae | contrastive")
     parser.add_argument("--epochs", type=int)
-    parser.add_argument("--lr",     type=float)
+    parser.add_argument("--lr", type=float)
     parser.add_argument("--save_path")
+    parser.add_argument("--batch_size", type=int)
+    parser.add_argument("--val_split", type=float, default=0.1)
+    parser.add_argument("--patience", type=int, default=5)
     args = parser.parse_args()
 
-    cfg        = load_config(args.config)
-    train_cfg  = cfg.get("training", {})
-    model_cfg  = cfg.get("models", {}).get(args.model.lower(), {})
+    # ---------------- Config ---------------------------
+    cfg = load_config(args.config)
+    train_cfg = cfg.get("training", {})
+    model_cfg = cfg.get("models", {}).get("vae", {})
 
     set_seed(train_cfg.get("seed", 42))
     device = resolve_device(train_cfg.get("device"))
 
-    # Garantizar embeddings UDA
+    # ---------------- Embeddings UDA -------------------
     ensure_uda_data(
         output_dir="./data",
         max_samples=train_cfg.get("max_samples"),
-        base_model_name=cfg["embedding_model"]["name"],
+        base_model_name=cfg.get("embedding_model", {})["name"],
     )
 
+    # ---------------- Entrenamiento -------------------
     train_vae(
-        dataset_path = model_cfg.get("dataset_path", "./data/uda_vae_embeddings.pt"),
-        input_dim    = model_cfg.get("input_dim", 384),
-        latent_dim   = model_cfg.get("latent_dim", 64),
-        hidden_dim   = model_cfg.get("hidden_dim", 512),
-        batch_size   = train_cfg.get("batch_size", 32),
-        epochs       = args.epochs or train_cfg.get("epochs", 10),
-        lr           = args.lr or train_cfg.get("learning_rate", 1e-3),
-        model_save_path = args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/vae.pth"),
-        device       = device,
+        dataset_path=model_cfg.get("dataset_path", "./data/uda_vae_embeddings.pt"),
+        input_dim=model_cfg.get("input_dim", 384),
+        latent_dim=model_cfg.get("latent_dim", 64),
+        hidden_dim=model_cfg.get("hidden_dim", 512),
+        batch_size=args.batch_size or train_cfg.get("batch_size", 256),
+        epochs=args.epochs or train_cfg.get("epochs", 20),
+        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path=args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/vae_text.pth"),
+        val_split=args.val_split,
+        patience=None if args.patience == 0 else args.patience,
+        device=device,
     )
 
 """
@@ -1368,6 +1823,9 @@ import torch
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
+import random
+from torch.utils.data import Subset
+
 
 ###############################################################################
 #  UDA → Sentence-Transformer embeddings (*.pt)                               #
@@ -1469,6 +1927,17 @@ def ensure_uda_data(
 
     print("[DONE] Preprocesado de UDA completo.")
 
+
+
+def split_dataset(dataset: torch.utils.data.Dataset, val_split: float = 0.1, seed: int = 42) -> Tuple[Subset, Subset]:
+    """Divide el dataset en train/val de forma estratificada simple (aleatoria)."""
+    n_total = len(dataset)
+    idx = list(range(n_total))
+    random.Random(seed).shuffle(idx)
+    n_val = int(n_total * val_split)
+    val_idx = idx[:n_val]
+    train_idx = idx[n_val:]
+    return Subset(dataset, train_idx), Subset(dataset, val_idx)
 """
 
 utils/load_config.py

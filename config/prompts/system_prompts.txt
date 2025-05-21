@@ -1,0 +1,1 @@
+Here is the user query and relevant text chunks. Step 1: Summarize user question in simpler words. Step 2: Decide which retrieved text chunks directly apply. Step 3: Combine those chunks into an outline. Step 4: Draft a single, coherent answer. Show all steps, then provide a final refined answer.
