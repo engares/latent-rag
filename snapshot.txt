@@ -1,98 +1,1507 @@
-# LATENT-RAG: Compresión de Embeddings en Sistemas RAG mediante Autoencoders
+### Directory tree for: .
 
-Este proyecto constituye el código base del Trabajo de Fin de Máster sobre mejora de la eficiencia en sistemas RAG (Retrieval-Augmented Generation) a través de la compresión de embeddings usando distintas variantes de autoencoders (DAE, VAE, Contrastive AE).
-
-## Características principales
-
-* **Entrenamiento de autoencoders** (DAE, VAE, Contrastive AE)
-* **Pipeline RAG** completo con generación usando LLMs via API (OpenAI, etc.)
-* **Sistema de evaluación** de calidad en tareas de recuperación y generación
-* **Compresión configurable** mediante `config.yaml`
-* **Descarga automática** y generación de datasets derivados del benchmark UDA
-
----
-
-## Estructura del proyecto
-
-```
 ./
-├── config/                # Configuraciones globales y prompts
-├── data/                  # Procesamiento de datasets y clases PyTorch
-├── evaluation/            # Métricas de evaluación
-├── generation/            # Generador de respuestas (vía LLM)
-├── retrieval/             # Codificadores y recuperación
-├── models/                # Implementaciones de autoencoders
-├── training/              # Entrenamiento de cada modelo
-├── utils/                 # Utilidades compartidas (config, seeds, data)
-├── main.py                # Ejecución del pipeline completo
-├── requeriments.txt       # Dependencias del entorno
-```
+├── AUTORAG.code-workspace
+├── README.md
+├── config/
+│   ├── config.yaml
+│   └── prompts/
+│       └── system_prompts.txt
+├── data/
+│   ├── data_processing.py
+│   └── torch_datasets.py
+├── evaluation/
+│   ├── autoencoder_metrics.py
+│   ├── generation_metrics.py
+│   └── retrieval_metrics.py
+├── generation/
+│   └── generator.py
+├── main.py
+├── models/
+│   ├── base_autoencoder.py
+│   ├── contrastive_autoencoder.py
+│   ├── denoising_autoencoder.py
+│   └── variational_autoencoder.py
+├── requeriments.txt
+├── retrieval/
+│   ├── embedder.py
+│   └── retriever.py
+├── save_snapshot.sh*
+├── snapshot.txt
+├── training/
+│   ├── loss_functions.py
+│   ├── train_cae.py
+│   ├── train_dae.py
+│   └── train_vae.py
+└── utils/
+    ├── data_utils.py
+    ├── load_config.py
+    └── training_utils.py
 
-## Instalación
-
-```bash
-pip install -r requeriments.txt
-```
-
-**Nota**: Algunas funcionalidades requieren tener una clave API de OpenAI en un archivo `.env`:
-
-```
-OPENAI_API_KEY=sk-xxxxx
-```
-
-## Ejecución
-
-### Entrenamiento de un autoencoder:
-
-```bash
-python training/train_vae.py --model vae
-python training/train_dae.py --model dae
-python training/train_cae.py --model contrastive
-```
-
-> Los hiperparámetros se definen en `config/config.yaml`. Puedes sobrescribir `--epochs`, `--lr` o `--save_path` desde la línea de comandos.
-
-### Evaluación end-to-end
-
-```bash
-python main.py
-```
-
-Esto realiza:
-
-1. Carga del modelo y embeddings.
-2. Recuperación de documentos.
-3. Generación con LLM.
-4. Evaluación de recuperación y generación.
-
----
-
-## Configuración
-
-Archivo: `config/config.yaml`
-
-Define:
-
-* `models`: parámetros específicos para cada autoencoder.
-* `training`: batch size, épocas, semilla, dispositivo, `max_samples` (para limitar número de ejemplos).
-* `retrieval`: tipo de similitud, top-k, si usar embeddings comprimidos.
-* `generation`: proveedor LLM, temperatura, prompt base, etc.
-
----
-
-## Dataset: UDA (Unsupervised Dense Retrieval for QA)
-
-* Se usa el benchmark `osunlp/uda` vía Huggingface Datasets.
-* Se generan dos versiones:
-
-  * `uda_dae_train.jsonl`: para denoising autoencoders
-  * `uda_contrastive_train.jsonl`: para contrastive learning
-* Se guarda en `./data/`
-
-Si ya existen, se reusan. Si no, se crean automáticamente al lanzar cualquier script de entrenamiento.
+9 directories, 27 files
 
 
----
 
-## Autor
+config/config.yaml
+"""
+project:
+  name: rag_autoencoder_tfm
+  version: "0.1"
+
+paths:
+  data_dir: "./data"
+  checkpoints_dir: "./models/checkpoints"
+  logs_dir: "./logs"
+
+embedding_model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  max_length: 256
+
+models:
+  vae:
+    input_dim: 384
+    latent_dim: 64
+    hidden_dim: 512
+    dataset_path: "./data/uda_dae_train.jsonl"
+    checkpoint: "./models/checkpoints/vae_text.pth"
+
+  dae:
+    input_dim: 384
+    latent_dim: 64
+    hidden_dim: 512
+    dataset_path: "./data/uda_dae_train.jsonl"
+    checkpoint: "./models/checkpoints/dae_text.pth"
+
+  contrastive:
+    input_dim: 384
+    latent_dim: 64
+    hidden_dim: 512
+    dataset_path: "./data/uda_contrastive_train.jsonl"
+    checkpoint: "./models/checkpoints/contrastive_ae.pth"
+
+training:
+  batch_size: 128
+  epochs: 50
+  learning_rate: 1e-3
+  seed: 42
+  device: "cuda"  # "cpu"
+  max_samples: null # None para usar todo el dataset
+
+retrieval:
+  similarity_metric: "cosine"   # opciones: cosine, mahalanobis
+  top_k: 20
+  compress_embeddings: true  # usar embeddings comprimidos
+
+generation:
+  provider: "openai"       # openai, anthropic, etc.
+  model: "gpt-4o-mini"
+  temperature: 0.3
+  max_tokens: 256
+  system_prompt_path: "./config/prompts/system_prompts.txt"
+
+
+evaluation:
+  retrieval_metrics: ["Recall@5", "MRR@10", "nDCG@10"]
+  generation_metrics: ["ROUGE-L", "BLEU", "METEOR"]
+
+logging:
+  level: "INFO"
+  log_to_file: true
+  log_file: "./logs/run.log"
+
+"""
+
+config/prompts/system_prompts.txt
+"""
+
+"""
+
+data/data_processing.py
+"""
+#/data_processing.py
+
+import random
+import json
+import re
+from typing import List, Dict
+from datasets import load_dataset
+
+# ---------------------------------------------------------
+# UDA Dataset Preprocessing for Autoencoder Training
+# ---------------------------------------------------------
+# Supports: Denoising AE (with artificial noise), VAE, Contrastive AE
+# ---------------------------------------------------------
+
+def clean_text(text: str) -> str:
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+def add_noise(text: str, removal_prob=0.1, swap_prob=0.05) -> str:
+    words = text.split()
+    # Remove tokens
+    words = [w for w in words if random.random() > removal_prob]
+    # Swap nearby tokens
+    for i in range(len(words)-1):
+        if random.random() < swap_prob:
+            words[i], words[i+1] = words[i+1], words[i]
+    return " ".join(words)
+
+def build_dae_dataset(samples: List[str]) -> List[Dict[str, str]]:
+    dataset = []
+    for original in samples:
+        noisy = add_noise(original)
+        dataset.append({"input": noisy, "target": original})
+    return dataset
+
+def build_contrastive_pairs(dataset, max_negatives=1) -> List[Dict]:
+    pairs = []
+    for example in dataset:
+        q = example["query"]
+        pos = example["positive_passages"][0]["text"]
+        negs = [n["text"] for n in example["negative_passages"][:max_negatives]]
+        for neg in negs:
+            pairs.append({"query": q, "positive": pos, "negative": neg})
+    return pairs
+
+def load_uda(split="train", max_samples=5000):
+    print("[INFO] Loading UDA benchmark dataset...")
+    uda = load_dataset("osunlp/uda", split=split)
+    return uda.select(range(min(max_samples, len(uda))))
+
+if __name__ == "__main__":
+    # Load base data
+    data = load_uda(split="train", max_samples=1000)
+    texts = [clean_text(p["text"]) for row in data for p in row["positive_passages"][:1]]
+
+    # Generate DAE data
+    dae_data = build_dae_dataset(texts)
+    with open("./data/uda_dae_train.jsonl", "w", encoding="utf-8") as f:
+        for item in dae_data:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    # Generate contrastive pairs
+    contrastive = build_contrastive_pairs(data, max_negatives=1)
+    with open("./data/uda_contrastive_train.jsonl", "w", encoding="utf-8") as f:
+        for item in contrastive:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    print("[INFO] Dataset files written to ./data/")
+
+"""
+
+data/torch_datasets.py
+"""
+# /data/torch_datasets.py
+import torch
+from torch.utils.data import Dataset
+from typing import Dict, List, Tuple
+
+
+# ---------- UTILIDADES COMUNES ------------------------------------------------
+def _load_pt(path: str) -> Dict[str, torch.Tensor]:
+    """
+    Carga un fichero .pt con tensores y asegura dtype = float32 en CPU.
+    El fichero se espera como un dict { name: Tensor }.
+    """
+    data = torch.load(path, map_location="cpu")
+    return {k: v.float() for k, v in data.items()}
+
+
+# ---------- DATASETS ---------------------------------------------------------
+
+
+class EmbeddingVAEDataset(Dataset):
+    """
+    Carga el fichero .pt generado por `ensure_uda_data`.
+    Estructura esperada:
+        {"input": <tensor [N×D]>, "target": <tensor [N×D]>}
+    """
+    def __init__(self, path: str):
+        data = torch.load(path, map_location="cpu")
+        self.input  = data["input"].float()
+        self.target = data["target"].float()
+        assert self.input.shape == self.target.shape, "input/target tamaño desigual"
+
+    def __len__(self):
+        return self.input.size(0)
+
+    def __getitem__(self, idx):
+        return {
+            "input":  self.input[idx],
+            "target": self.target[idx],
+        }
+
+
+class EmbeddingDAEDataset(Dataset):
+    """
+    Carga 'uda_dae_embeddings.pt' producido por `ensure_uda_data`.
+
+    Estructura:
+        {
+            "input":  Tensor [N × D]  (embeddings con ruido)
+            "target": Tensor [N × D]  (embeddings limpios)
+        }
+    """
+    def __init__(self, path: str):
+        d = torch.load(path, map_location="cpu")
+        self.x  = d["input" ].float()
+        self.y  = d["target"].float()
+        assert self.x.shape == self.y.shape, "Input / target mismatch"
+
+    def __len__(self):          return self.x.size(0)
+    def __getitem__(self, idx): return {"x": self.x[idx], "y": self.y[idx]}
+
+    
+
+class EmbeddingTripletDataset(Dataset):
+    """
+    Carga 'uda_contrastive_embeddings.pt' generado por `ensure_uda_data`.
+
+    Estructura esperada:
+        {
+            "query":     Tensor [N × D],
+            "positive":  Tensor [N × D],
+            "negative":  Tensor [N × D]
+        }
+    """
+    def __init__(self, path: str):
+        data = torch.load(path, map_location="cpu")
+        self.q  = data["query"    ].float()
+        self.p  = data["positive" ].float()
+        self.n  = data["negative" ].float()
+        assert self.q.shape == self.p.shape == self.n.shape, "Dimensiones incompatibles"
+
+    def __len__(self) -> int:          return self.q.size(0)
+
+    def __getitem__(self, idx):        # devuelvo tensores individuales
+        return {"q": self.q[idx],
+                "p": self.p[idx],
+                "n": self.n[idx]}
+
+
+# ---------- PRUEBA RÁPIDA -----------------------------------------------------
+if __name__ == "__main__":
+    dae_ds = EmbeddingDAEDataset("./data/uda_dae_embeddings.pt")
+    vae_ds = EmbeddingDAEDataset("./data/uda_vae_embeddings.pt")
+    con_ds = EmbeddingTripletDataset("./data/uda_contrastive_embeddings.pt")
+
+    print("DAE sample ⇒", {k: v.shape for k, v in dae_ds[0].items()})
+    print("Contrastive sample ⇒", {k: v.shape for k, v in con_ds[0].items()})
+    print("VAE sample ⇒", {k: v.shape for k, v in vae_ds[0].items()})
+
+"""
+
+evaluation/autoencoder_metrics.py
+"""
+import torch
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.manifold import TSNE
+from typing import Tuple
+
+
+def evaluate_reconstruction_loss(x: torch.Tensor, x_reconstructed: torch.Tensor, reduction: str = "mean") -> float:
+    """Calcula el error de reconstrucción (MSE)."""
+    loss_fn = torch.nn.MSELoss(reduction=reduction)
+    return loss_fn(x_reconstructed, x).item()
+
+def visualize_embeddings(embeddings: torch.Tensor, labels: torch.Tensor = None, title: str = "Embeddings Visualization"):
+    """Proyección 2D de los embeddings usando t-SNE."""
+    tsne = TSNE(n_components=2, random_state=42)
+    emb_2d = tsne.fit_transform(embeddings.cpu().numpy())
+
+    plt.figure(figsize=(8, 6))
+    if labels is not None:
+        sns.scatterplot(x=emb_2d[:, 0], y=emb_2d[:, 1], hue=labels.cpu().numpy(), palette="tab10")
+    else:
+        sns.scatterplot(x=emb_2d[:, 0], y=emb_2d[:, 1])
+
+    plt.title(title)
+    plt.show()
+"""
+
+evaluation/generation_metrics.py
+"""
+import torch
+from torchmetrics.text import BLEUScore, ROUGEScore
+from typing import List, Dict
+
+def compute_bleu_torch(candidates: List[str], references: List[str]) -> float:
+    metric = BLEUScore(n_gram=4)
+    return metric(candidates, [[ref] for ref in references]).item()
+
+def compute_rouge_l_torch(candidates: List[str], references: List[str]) -> float:
+    metric = ROUGEScore(rouge_keys=["rougeL"])
+    scores = metric(candidates, references)
+    return scores["rougeL_fmeasure"].item()
+
+def evaluate_generation_torch(
+    references: List[str], 
+    candidates: List[str], 
+    metrics: List[str] = ["ROUGE-L", "BLEU"]
+) -> Dict[str, float]:
+    assert len(references) == len(candidates), "El número de referencias y candidatos debe coincidir."
+    results = {}
+    
+    if "BLEU" in metrics:
+        results["BLEU"] = compute_bleu_torch(candidates, references)
+    if "ROUGE-L" in metrics:
+        results["ROUGE-L"] = compute_rouge_l_torch(candidates, references)
+    
+    return results
+
+"""
+
+evaluation/retrieval_metrics.py
+"""
+import numpy as np
+from typing import List, Union, Dict
+import yaml
+import os
+
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
+
+def load_config(path: str = DEFAULT_CONFIG_PATH) -> Dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+config = load_config()
+
+def recall_at_k(retrieved: List[Union[str, int]], relevant: List[Union[str, int]], k: int) -> float:
+    if not relevant:
+        return 0.0
+    retrieved_k = retrieved[:k]
+    hits = len(set(retrieved_k) & set(relevant))
+    return hits / len(relevant)
+
+def mrr(retrieved: List[Union[str, int]], relevant: List[Union[str, int]]) -> float:
+    for idx, doc_id in enumerate(retrieved, start=1):
+        if doc_id in relevant:
+            return 1.0 / idx
+    return 0.0
+
+def ndcg_at_k(retrieved: List[Union[str, int]], relevant: List[Union[str, int]], k: int) -> float:
+    retrieved_k = retrieved[:k]
+    dcg = sum(
+        1.0 / np.log2(i + 2) if doc in relevant else 0.0 
+        for i, doc in enumerate(retrieved_k)
+    )
+    ideal_dcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(relevant), k)))
+    return dcg / ideal_dcg if ideal_dcg > 0 else 0.0
+
+def evaluate_retrieval(
+    retrieved: List[Union[str, int]], 
+    relevant: List[Union[str, int]], 
+    metrics: List[str] = None
+) -> Dict[str, float]:
+
+    if metrics is None:
+        metrics = config.get("evaluation", {}).get("retrieval_metrics", [])
+
+    results = {}
+    for metric in metrics:
+        if "@" in metric:
+            name, k_str = metric.split("@")
+            k = int(k_str)
+        else:
+            name = metric
+            k = None
+
+        name_lower = name.lower()
+        if name_lower == "recall" and k is not None:
+            results[f"Recall@{k}"] = recall_at_k(retrieved, relevant, k)
+        elif name_lower == "mrr":
+            cutoff = k if k else len(retrieved)
+            results[f"MRR@{cutoff}"] = mrr(retrieved[:cutoff], relevant)
+        elif name_lower == "ndcg" and k is not None:
+            results[f"nDCG@{k}"] = ndcg_at_k(retrieved, relevant, k)
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
+
+    return results
+
+"""
+
+generation/generator.py
+"""
+from __future__ import annotations
+
+import os
+import textwrap
+import logging
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Any
+
+import yaml
+import openai
+from dotenv import load_dotenv
+
+load_dotenv()
+
+DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
+
+_logger = logging.getLogger(__name__)
+_logger.addHandler(logging.NullHandler())
+
+def load_prompt(prompt_path: str) -> str:
+    """Carga el contenido de un archivo de prompt."""
+    try:
+        with open(prompt_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        _logger.warning("Prompt no encontrado en %s; se usará prompt vacío.", prompt_path)
+        return ""
+
+def _load_yaml_config(path: Optional[str] = None) -> Dict[str, Any]:
+    """Carga la configuración YAML. Si no existe, devuelve un diccionario vacío."""
+    try:
+        with open(path or DEFAULT_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        _logger.warning("Config YAML no encontrado en %s; se usarán valores por defecto.", path or DEFAULT_CONFIG_PATH)
+        return {}
+
+@dataclass
+class LLMSettings:
+    model: str = "gpt-4o-mini"
+    temperature: float = 0.2
+    top_p: float = 1.0
+    max_tokens: int = 512
+    system_prompt_path: str = "./config/prompts/system_prompt.txt"
+    system_prompt: str = field(init=False)
+
+    def __post_init__(self):
+        self.system_prompt = load_prompt(self.system_prompt_path)
+
+@dataclass
+class GeneratorConfig:
+    llm: LLMSettings = field(default_factory=LLMSettings)
+    max_context_tokens: int = 4096  
+
+
+
+class RAGGenerator:
+    """Generador de respuestas usando un LLM con contexto recuperado."""
+
+    def __init__(self, config_path: Optional[str] = None, **overrides):
+        # Cargar configuración desde YAML
+        yaml_cfg = _load_yaml_config(config_path)
+        cfg_dict = yaml_cfg.get("generation", {})
+        cfg_dict.update(overrides)
+        self.config = self._dict_to_config(cfg_dict)
+
+        # Cargar API Key desde .env exclusivamente
+        openai.api_key = os.getenv("OPENAI_API_KEY")
+        if not openai.api_key:
+            raise EnvironmentError(
+                "Debe definirse la variable de entorno OPENAI_API_KEY en un archivo .env o en el entorno del sistema."
+            )
+        _logger.info("API Key cargada correctamente desde .env")
+
+    # API pública
+
+    def generate(self, query: str, retrieved_docs: List[str]) -> str:
+        """Genera una respuesta dada la query y los documentos recuperados."""
+        prompt = self._build_prompt(query, retrieved_docs)
+        _logger.debug("Prompt construido (%d caracteres).", len(prompt))
+
+        response = openai.ChatCompletion.create(
+            model=self.config.llm.model,
+            temperature=self.config.llm.temperature,
+            top_p=self.config.llm.top_p,
+            max_tokens=self.config.llm.max_tokens,
+            messages=[
+                {"role": "system", "content": self.config.llm.system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        return response.choices[0].message.content.strip()
+
+    async def generate_async(self, query: str, retrieved_docs: List[str]) -> str:
+        """Versión asíncrona de `generate` (requiere openai>=1.2 con soporte async)."""
+        prompt = self._build_prompt(query, retrieved_docs)
+        _logger.debug("Prompt construido (async) (%d caracteres).", len(prompt))
+
+        response = await openai.ChatCompletion.acreate(
+            model=self.config.llm.model,
+            temperature=self.config.llm.temperature,
+            top_p=self.config.llm.top_p,
+            max_tokens=self.config.llm.max_tokens,
+            messages=[
+                {"role": "system", "content": self.config.llm.system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        return response.choices[0].message.content.strip()
+
+    # Métodos internos
+
+    @staticmethod
+    def _dict_to_config(cfg: Dict[str, Any]) -> GeneratorConfig:
+        """Convierte un diccionario en un objeto GeneratorConfig (profundidad 2)."""
+        llm_cfg = cfg.get("llm", {})
+        llm_settings = LLMSettings(**llm_cfg)
+        return GeneratorConfig(llm=llm_settings, **{k: v for k, v in cfg.items() if k != "llm"})
+
+    def _build_prompt(self, query: str, docs: List[str]) -> str:
+        """Construye el prompt combinando la query y los documentos recuperados, recortando si es necesario."""
+        context = self._truncate_docs(docs)
+        joined_context = "\n\n".join(f"Doc {i+1}: {d}" for i, d in enumerate(context))
+
+        prompt_template = textwrap.dedent(
+            f"""\
+            Utiliza exclusivamente la siguiente información para responder la pregunta.\n\n"""
+            f"{joined_context}\n\n"
+            f"Pregunta: {query}\n\nRespuesta:"""
+        )
+        return prompt_template
+
+    def _truncate_docs(self, docs: List[str]) -> List[str]:
+        """Recorta la lista de documentos para no exceder el límite de tokens aproximado."""
+        max_chars = self.config.max_context_tokens * 4  
+        acc_chars = 0
+        selected = []
+        for doc in docs:
+            if acc_chars + len(doc) > max_chars:
+                break
+            selected.append(doc)
+            acc_chars += len(doc)
+        return selected
+
+"""
+
+main.py
+"""
+import argparse
+import os
+import yaml
+import torch
+from dotenv import load_dotenv
+
+from retrieval.embedder import EmbeddingCompressor
+from retrieval.retriever import retrieve_top_k
+from models.variational_autoencoder import VariationalAutoencoder
+from generation.generator import RAGGenerator
+from evaluation.retrieval_metrics import evaluate_retrieval
+from evaluation.generation_metrics import evaluate_generation_torch
+from utils.load_config import load_config
+from utils.training_utils import set_seed, resolve_device
+
+
+
+def main() -> None:
+    # ------------------ CLI Arguments ------------------
+    parser = argparse.ArgumentParser(description="RAG Pipeline with Autoencoders for TFM")
+    parser.add_argument("--config", type=str, default="./config/config.yaml", help="Path to YAML configuration file")
+    parser.add_argument("--visualize-embeddings", action="store_true", help="Visualize compressed embeddings using t‑SNE")
+    parser.add_argument("--evaluate-autoencoder", action="store_true", help="Compute Reconstruction Loss after compression")
+    args = parser.parse_args()
+
+    # ------------------ Configuration ------------------
+    load_dotenv()
+    config = load_config(args.config)
+
+    # ------------------ Embeddings and Autoencoder ------------------
+    ae_cfg = config.get("autoencoder", {})
+    embedding_model = ae_cfg.get("embedding_model", "sentence-transformers/all-MiniLM-L6-v2")
+
+    # Load Autoencoder checkpoint if requested
+    autoencoder = None
+    if ae_cfg.get("type", "none") == "vae":
+        autoencoder = VariationalAutoencoder(ae_cfg["input_dim"], ae_cfg["latent_dim"])
+        autoencoder.load_state_dict(torch.load(ae_cfg["checkpoint"]))
+
+    # Create embedder (raw or compressed)
+    compressor = EmbeddingCompressor(base_model_name=embedding_model, autoencoder=autoencoder)
+
+    # -----------------------------------------------------------------
+    # Demo corpus & query — replace with dataset loader in real pipeline
+    # -----------------------------------------------------------------
+    corpus = [
+        "Paris is the capital of France.",
+        "The Pythagorean theorem applies to right‑angled triangles.",
+        "The Spanish Civil War began in 1936.",
+        "GPT is a language model developed by OpenAI.",
+        "Autoencoders allow nonlinear compression."
+    ]
+    query = ["Which model does OpenAI use for text generation?"]
+
+    # -----------------------------------------------------------------
+    # Encode texts
+    # -----------------------------------------------------------------
+    doc_embeddings = compressor.encode_text(corpus, compress=True)
+    query_embedding = compressor.encode_text(query, compress=True)
+
+    # -----------------------------------------------------------------
+    # Optional: autoencoder diagnostics
+    # -----------------------------------------------------------------
+    if args.evaluate_autoencoder:
+        from evaluation.autoencoder_metrics import evaluate_reconstruction_loss
+        print("[INFO] Autoencoder Reconstruction Loss evaluation enabled.")
+        # Example: compute loss on a small batch (requires original x)
+        # loss = evaluate_reconstruction_loss(x_batch, x_reconstructed)
+
+    if args.visualize_embeddings:
+        from evaluation.autoencoder_metrics import visualize_embeddings
+        print("[INFO] Embedding visualization enabled.")
+        visualize_embeddings(doc_embeddings)
+
+    # ------------------ Retrieval ------------------
+    retrieval_cfg = config.get("retrieval", {})  # <‑‑ now actually used
+    top_k = retrieval_cfg.get("top_k", 5)
+    similarity_metric = retrieval_cfg.get("similarity_metric", "cosine")
+
+    retrieved_docs = retrieve_top_k(query_embedding, doc_embeddings, corpus, k=top_k, metric=similarity_metric)
+    retrieved_ids = [doc for doc, _ in retrieved_docs]
+
+    # ------------------ Retrieval Evaluation ------------------
+    relevant_docs = ["GPT is a language model developed by OpenAI."]
+    retrieval_results = evaluate_retrieval(retrieved_ids, relevant_docs)
+
+    print("\n[RETRIEVAL RESULTS]")
+    for metric, value in retrieval_results.items():
+        print(f"{metric}: {value:.4f}")
+
+    # ------------------ Generation ------------------
+    generator = RAGGenerator(config_path=args.config)
+    generated_response = generator.generate(query[0], [doc for doc, _ in retrieved_docs])
+
+    print("\n[GENERATED RESPONSE]")
+    print(generated_response)
+
+    # ------------------ Generation Evaluation ------------------
+    generation_cfg = config.get("evaluation", {}).get("generation_metrics", ["ROUGE-L", "BLEU"])
+    gen_results = evaluate_generation_torch(
+        references=relevant_docs,
+        candidates=[generated_response],
+        metrics=generation_cfg,
+    )
+
+    print("\n[GENERATION RESULTS]")
+    for metric, value in gen_results.items():
+        print(f"{metric}: {value:.4f}")
+
+
+if __name__ == "__main__":
+    main()
+
+"""
+
+models/base_autoencoder.py
+"""
+import torch
+import torch.nn as nn
+from abc import ABC, abstractmethod
+
+class BaseAutoencoder(nn.Module, ABC):
+    def __init__(self, input_dim: int, latent_dim: int):
+        super(BaseAutoencoder, self).__init__()
+        self.input_dim = input_dim
+        self.latent_dim = latent_dim
+
+    @abstractmethod
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        pass
+
+    @abstractmethod
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        pass
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.encode(x)
+        return self.decode(z)
+
+"""
+
+models/contrastive_autoencoder.py
+"""
+import torch
+import torch.nn as nn
+from models.base_autoencoder import BaseAutoencoder
+
+class ContrastiveAutoencoder(BaseAutoencoder):
+    def __init__(self, input_dim: int, latent_dim: int, hidden_dim: int = 512):
+        super(ContrastiveAutoencoder, self).__init__(input_dim, latent_dim)
+
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, latent_dim)
+        )
+
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim),
+            nn.Sigmoid()  # Useful if input vectors are normalized
+        )
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.encoder(x)
+        return torch.nn.functional.normalize(z, p=2, dim=-1)
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        return self.decoder(z)
+      
+    def forward(self, x: torch.Tensor):
+        z = self.encode(x)
+        x_recon = self.decode(z)
+        return x_recon, z
+
+"""
+
+models/denoising_autoencoder.py
+"""
+import torch
+import torch.nn as nn
+from models.base_autoencoder import BaseAutoencoder
+import torch.nn.functional as F
+
+class DenoisingAutoencoder(BaseAutoencoder):
+    """Feed‑forward Denoising Autoencoder.
+
+    The dataset must supply *noisy* inputs; the model learns to reconstruct the
+    clean version. Use `dae_loss` (MSE) during training.
+    """
+
+    def __init__(self, input_dim: int, latent_dim: int, hidden_dim: int = 512):
+        super().__init__(input_dim, latent_dim)
+
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, latent_dim)
+        )
+
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim),
+            nn.Sigmoid()  # assume inputs ∈ [0,1]; change if different scale
+        )
+
+    def encode(self, x: torch.Tensor) -> torch.Tensor:
+        return self.encoder(x)
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        return self.decoder(z)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        z = self.encode(x)
+        return self.decode(z)
+
+"""
+
+models/variational_autoencoder.py
+"""
+import torch
+import torch.nn as nn
+from models.base_autoencoder import BaseAutoencoder
+
+class VariationalAutoencoder(BaseAutoencoder):
+    def __init__(self, input_dim: int, latent_dim: int, hidden_dim: int = 512):
+        super(VariationalAutoencoder, self).__init__(input_dim, latent_dim)
+        
+        # Encoder: proyecciones a la media y desviación estándar
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU()
+        )
+        self.mu_layer = nn.Linear(hidden_dim, latent_dim)
+        self.logvar_layer = nn.Linear(hidden_dim, latent_dim)
+
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim),
+            nn.Sigmoid()  # Asumimos entrada normalizada (0-1)
+        )
+
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        h = self.encoder(x)
+        mu = self.mu_layer(h)
+        logvar = self.logvar_layer(h)
+        return mu, logvar
+
+    def reparameterize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def decode(self, z: torch.Tensor) -> torch.Tensor:
+        return self.decoder(z)
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        x_reconstructed = self.decode(z)
+        return x_reconstructed, mu, logvar
+
+"""
+
+requeriments.txt
+"""
+# Core ML & Data Processing
+torch>=2.0.0
+torchmetrics>=1.0.0
+transformers>=4.38.0
+sentence-transformers>=2.2.2
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pandas>=2.0.0
+
+datasets>=2.19.0
+scipy>=1.10.0
+openai>=1.14.0
+
+
+# Visualization & Analysis
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Evaluation Metrics (Efficient and Torch-Compatible)
+rouge>=1.0.1
+
+# Configuration & Utilities
+pyyaml>=6.0
+python-dotenv>=1.0.0
+
+# Optional CLI Enhancements
+rich>=13.0.0
+"""
+
+retrieval/embedder.py
+"""
+# retrieval/embedder.py
+
+import torch
+from transformers import AutoTokenizer, AutoModel
+
+class EmbeddingCompressor:
+    def __init__(
+        self,
+        base_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+        autoencoder: torch.nn.Module = None,
+        device: str = None
+    ):
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Modelo base de embeddings (ej. BERT, SBERT, DPR)
+        self.tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+        self.model = AutoModel.from_pretrained(base_model_name).to(self.device)
+        self.model.eval()
+
+        # Autoencoder (inyectado externamente, puede ser VAE, DAE, etc.)
+        self.autoencoder = autoencoder.to(self.device) if autoencoder else None
+        if self.autoencoder:
+            self.autoencoder.eval()
+
+    def encode_text(self, texts: list[str], compress: bool = True) -> torch.Tensor:
+        with torch.no_grad():
+            tokens = self.tokenizer(texts, padding=True, truncation=True, return_tensors='pt').to(self.device)
+            outputs = self.model(**tokens)
+            cls_embeddings = outputs.last_hidden_state[:, 0, :]  # Representación [CLS]
+
+            if self.autoencoder and compress:
+                if hasattr(self.autoencoder, "encode"):
+                    encoded = self.autoencoder.encode(cls_embeddings)
+                    if isinstance(encoded, tuple):  # VAE (mu, logvar)
+                        return encoded[0].cpu()     # usamos mu
+                    return encoded.cpu()
+                else:
+                    raise ValueError("El autoencoder debe implementar el método 'encode'")
+            return cls_embeddings.cpu()
+
+"""
+
+retrieval/retriever.py
+"""
+import torch
+import torch.nn.functional as F
+import numpy as np
+from sklearn.covariance import EmpiricalCovariance
+from typing import List, Tuple, Literal
+
+SimilarityMetric = Literal["cosine", "euclidean", "mahalanobis"]
+
+def cosine_similarity_matrix(query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor) -> np.ndarray:
+    """Calcula la matriz de similitud coseno entre embeddings de consulta y documentos."""
+    q_norm = F.normalize(query_embeddings, p=2, dim=1)
+    d_norm = F.normalize(doc_embeddings, p=2, dim=1)
+    return torch.mm(q_norm, d_norm.T).cpu().numpy()
+
+def euclidean_similarity_matrix(query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor) -> np.ndarray:
+    """Calcula la matriz de similitud inversa de distancias euclídeas."""
+    q = query_embeddings.unsqueeze(1)  # [Q, 1, D]
+    d = doc_embeddings.unsqueeze(0)    # [1, N, D]
+    distances = torch.norm(q - d, dim=2)  # [Q, N]
+    return -distances.cpu().numpy()  # Negative so greater values, greater similarity
+
+def mahalanobis_similarity_matrix(query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor) -> np.ndarray:
+    """Calcula la matriz de similitud inversa de distancias de Mahalanobis."""
+    doc_np = doc_embeddings.cpu().numpy()
+    cov = EmpiricalCovariance().fit(doc_np)
+    mahal_dist = cov.mahalanobis(query_embeddings.cpu().numpy(), doc_np)
+    return -mahal_dist  # NSame as eucliden
+
+
+def compute_similarity( query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor, metric: SimilarityMetric = "cosine") -> np.ndarray:
+    """Calcula la matriz de similitud entre embeddings de consulta y documentos."""
+    if metric == "cosine":
+        return cosine_similarity_matrix(query_embeddings, doc_embeddings)
+    elif metric == "euclidean":
+        return euclidean_similarity_matrix(query_embeddings, doc_embeddings)
+    elif metric == "mahalanobis":
+        return mahalanobis_similarity_matrix(query_embeddings, doc_embeddings)
+    else:
+        raise ValueError(f"Métrica de similitud '{metric}' no soportada.")
+
+def retrieve_top_k( query_embedding: torch.Tensor, doc_embeddings: torch.Tensor, doc_texts: List[str], k: int = 5, metric: SimilarityMetric = "cosine" ) -> List[Tuple[str, float]]:
+    """Recupera los Top-k documentos más similares."""
+    sim_scores = compute_similarity(query_embedding, doc_embeddings, metric)
+    top_indices = sim_scores[0].argsort()[::-1][:k]  # Top-k mayores valores
+    return [(doc_texts[i], sim_scores[0][i]) for i in top_indices]
+
+"""
+
+save_snapshot.sh
+"""
+#!/usr/bin/env bash
+#
+# save_snapshot.sh  –  Dump a folder’s tree plus every file’s contents
+# Usage:
+#   ./save_snapshot.sh [TARGET_DIR] [OUTPUT_TXT]
+# Defaults:
+#   TARGET_DIR="."                  (current directory)
+#   OUTPUT_TXT="snapshot.txt"       (created/overwritten)
+
+set -euo pipefail
+
+###############################################################################
+# 1. Input handling
+###############################################################################
+TARGET_DIR="${1:-.}"
+OUTPUT_TXT="${2:-snapshot.txt}"
+
+# Verify prerequisites
+command -v tree >/dev/null 2>&1 || {
+  printf 'Error: "tree" command not found. Please install it first.\n' >&2; exit 1; }
+
+# Avoid accidental overwrite of important files
+if [[ -e "$OUTPUT_TXT" && ! -w "$OUTPUT_TXT" ]]; then
+  printf 'Error: Output file "%s" is not writable.\n' "$OUTPUT_TXT" >&2
+  exit 1
+fi
+
+###############################################################################
+# 2. Capture the directory tree
+###############################################################################
+# Truncate/overwrite existing output
+: > "$OUTPUT_TXT"
+
+printf '### Directory tree for: %s\n\n' "$TARGET_DIR" >> "$OUTPUT_TXT"
+tree -F "$TARGET_DIR" >> "$OUTPUT_TXT" || {
+  printf 'Warning: Unable to generate tree for "%s".\n' "$TARGET_DIR" >&2; }
+
+printf '\n\n### File contents\n\n' >> "$OUTPUT_TXT"
+
+###############################################################################
+# 3. Append each file (relative path + contents)
+###############################################################################
+# Absolute path to output for comparison
+ABS_OUTPUT="$(realpath "$OUTPUT_TXT")"
+
+# Exclude hidden files and files inside hidden directories
+find "$TARGET_DIR" -type f ! -path '*/.*/*' ! -name '.*' -print0 | sort -z |
+while IFS= read -r -d '' FILE
+do
+  # Resolve absolute path of the file
+  ABS_FILE="$(realpath "$FILE")"
+
+  # Skip the output file itself
+  if [[ "$ABS_FILE" == "$ABS_OUTPUT" ]]; then
+    continue
+  fi
+
+  # Remove leading base path for relative display
+  REL_PATH="${FILE#$TARGET_DIR/}"
+
+  # Header
+  printf '%s\n' "$REL_PATH" >> "$OUTPUT_TXT"
+  printf '"""\n' >> "$OUTPUT_TXT"
+
+  # File contents
+  if ! cat "$FILE" >> "$OUTPUT_TXT" 2>/dev/null; then
+    printf '[[[ Error reading file ]]]\n' >> "$OUTPUT_TXT"
+    printf 'Warning: Could not read "%s".\n' "$REL_PATH" >&2
+  fi
+
+  # Footer
+  printf '\n"""\n\n' >> "$OUTPUT_TXT"
+done
+printf 'Snapshot saved to: %s\n' "$OUTPUT_TXT"
+"""
+
+training/loss_functions.py
+"""
+import torch
+import torch.nn.functional as F
+
+
+def vae_loss(x_reconstructed: torch.Tensor, x: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+    """Standard VAE loss: BCE + KL divergence."""
+    recon_loss = F.binary_cross_entropy(x_reconstructed, x, reduction="sum")
+    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    return recon_loss + kl_loss
+
+
+def dae_loss(x_reconstructed: torch.Tensor, x_clean: torch.Tensor, reduction: str = "mean") -> torch.Tensor:
+    """Mean‑squared error reconstruction loss for Denoising Autoencoders."""
+    return F.mse_loss(x_reconstructed, x_clean, reduction=reduction)
+
+def contrastive_loss(z_q: torch.Tensor, z_pos: torch.Tensor, z_neg: torch.Tensor, margin: float = 1.0) -> torch.Tensor:
+    """Contrastive loss: encourages z_q to be closer to z_pos than to z_neg by at least the margin."""
+    pos_dist = torch.norm(z_q - z_pos, dim=1)
+    neg_dist = torch.norm(z_q - z_neg, dim=1)
+    loss = F.relu(pos_dist - neg_dist + margin)
+    return loss.mean()
+
+"""
+
+training/train_cae.py
+"""
+# training/train_cae.py
+import argparse, os, torch
+from torch.utils.data import DataLoader
+from models.contrastive_autoencoder import ContrastiveAutoencoder
+from training.loss_functions import contrastive_loss
+from data.torch_datasets import EmbeddingTripletDataset
+from utils.load_config import load_config
+from utils.training_utils import set_seed, resolve_device
+from utils.data_utils import ensure_uda_data
+from dotenv import load_dotenv
+
+# ----------------------------------------------------------------------
+def train_cae(
+    dataset_path: str,
+    input_dim: int,
+    latent_dim: int,
+    hidden_dim: int,
+    batch_size: int,
+    epochs: int,
+    lr: float,
+    model_save_path: str,
+    device: str | None = None,
+):
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Training Contrastive AE on {device}")
+
+    dataset    = EmbeddingTripletDataset(dataset_path)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
+    optim = torch.optim.Adam(model.parameters(), lr=lr)
+
+    model.train()
+    for ep in range(epochs):
+        tot = 0.0
+        for batch in dataloader:
+            q   = batch["q"].to(device)
+            pos = batch["p"].to(device)
+            neg = batch["n"].to(device)
+
+            optim.zero_grad()
+            z_q   = model.encode(q)
+            z_pos = model.encode(pos)
+            z_neg = model.encode(neg)
+            loss  = contrastive_loss(z_q, z_pos, z_neg)
+            loss.backward()
+            optim.step()
+
+            tot += loss.item()
+
+        print(f"[Epoch {ep+1}/{epochs}] Loss: {tot/len(dataset):.4f}")
+
+    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    torch.save(model.state_dict(), model_save_path)
+    print(f"[OK] Modelo guardado → {model_save_path}")
+
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+    load_dotenv()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="./config/config.yaml")
+    ap.add_argument("--model",  required=True, help="contrastive | vae | dae")
+    ap.add_argument("--epochs", type=int)
+    ap.add_argument("--lr",     type=float)
+    ap.add_argument("--save_path")
+    args = ap.parse_args()
+
+    cfg        = load_config(args.config)
+    train_cfg  = cfg["training"]
+    model_cfg  = cfg["models"][args.model.lower()]
+
+    set_seed(train_cfg.get("seed", 42))
+    device = resolve_device(train_cfg.get("device"))
+
+    # genera embeddings si hace falta
+    ensure_uda_data(
+        output_dir="./data",
+        max_samples=train_cfg.get("max_samples"),
+        base_model_name=cfg["embedding_model"]["name"],
+    )
+
+    train_cae(
+        dataset_path   = model_cfg.get("dataset_path", "./data/uda_contrastive_embeddings.pt"),
+        input_dim      = model_cfg.get("input_dim", 384),
+        latent_dim     = model_cfg.get("latent_dim", 64),
+        hidden_dim     = model_cfg.get("hidden_dim", 512),
+        batch_size     = train_cfg.get("batch_size", 32),
+        epochs         = args.epochs or train_cfg.get("epochs", 10),
+        lr             = args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path= args.save_path or model_cfg.get(
+                            "checkpoint", "./models/checkpoints/contrastive_ae.pth"),
+        device         = device,
+    )
+
+"""
+
+training/train_dae.py
+"""
+# training/train_dae.py
+import argparse, os, torch
+from torch.utils.data import DataLoader
+from models.denoising_autoencoder import DenoisingAutoencoder
+from training.loss_functions import dae_loss
+from data.torch_datasets import EmbeddingDAEDataset
+from utils.load_config import load_config
+from utils.training_utils import set_seed, resolve_device
+from utils.data_utils import ensure_uda_data
+from dotenv import load_dotenv
+
+# ----------------------------------------------------------------------
+def train_dae(
+    dataset_path: str,
+    input_dim: int,
+    latent_dim: int,
+    hidden_dim: int,
+    batch_size: int,
+    epochs: int,
+    lr: float,
+    model_save_path: str,
+    device: str | None = None,
+):
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Training Denoising AE on {device}")
+
+    ds  = EmbeddingDAEDataset(dataset_path)
+    dl  = DataLoader(ds, batch_size=batch_size, shuffle=True)
+
+    model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
+    optim = torch.optim.Adam(model.parameters(), lr=lr)
+
+    model.train()
+    for ep in range(epochs):
+        tot = 0.0
+        for batch in dl:
+            x_noisy  = batch["x"].to(device)
+            x_clean  = batch["y"].to(device)
+
+            optim.zero_grad()
+            x_recon  = model(x_noisy)
+            loss     = dae_loss(x_recon, x_clean)
+            loss.backward()
+            optim.step()
+            tot += loss.item()
+
+        print(f"[Epoch {ep+1}/{epochs}] Loss: {tot/len(ds):.4f}")
+
+    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    torch.save(model.state_dict(), model_save_path)
+    print(f"[OK] Modelo guardado → {model_save_path}")
+
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+    load_dotenv()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="./config/config.yaml")
+    ap.add_argument("--model",  required=True, help="dae | vae | contrastive")
+    ap.add_argument("--epochs", type=int)
+    ap.add_argument("--lr",     type=float)
+    ap.add_argument("--save_path")
+    args = ap.parse_args()
+
+    cfg        = load_config(args.config)
+    train_cfg  = cfg["training"]
+    model_cfg  = cfg["models"][args.model.lower()]
+
+    set_seed(train_cfg.get("seed", 42))
+    device = resolve_device(train_cfg.get("device"))
+
+    # Asegúrate de tener los ficheros .pt
+    ensure_uda_data(
+        output_dir="./data",
+        max_samples=train_cfg.get("max_samples"),
+        base_model_name=cfg["embedding_model"]["name"],
+    )
+
+    train_dae(
+        dataset_path = model_cfg.get("dataset_path", "./data/uda_dae_embeddings.pt"),
+        input_dim = model_cfg.get("input_dim", 384),
+        latent_dim = model_cfg.get("latent_dim", 64),
+        hidden_dim = model_cfg.get("hidden_dim", 512),
+        batch_size = train_cfg.get("batch_size", 32),
+        epochs = args.epochs or train_cfg.get("epochs", 10),
+        lr  = args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path= args.save_path or model_cfg.get(
+                            "checkpoint", "./models/checkpoints/dae_text.pth"),
+        device  = device
+    )
+
+"""
+
+training/train_vae.py
+"""
+# /training/train_vae.py
+# training/train_vae.py
+import argparse, os, torch, yaml
+from torch.utils.data import DataLoader
+from models.variational_autoencoder import VariationalAutoencoder
+from data.torch_datasets import EmbeddingVAEDataset
+from training.loss_functions import vae_loss
+from utils.load_config import load_config
+from utils.training_utils import set_seed, resolve_device
+from utils.data_utils import ensure_uda_data
+from dotenv import load_dotenv
+
+# ------------------- Entrenamiento ----------------------------------------
+def train_vae(
+    dataset_path: str,
+    input_dim: int,
+    latent_dim: int,
+    hidden_dim: int,
+    batch_size: int,
+    epochs: int,
+    lr: float,
+    model_save_path: str,
+    device: str | None = None,
+):
+    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"[INFO] Training VAE on: {device}")
+
+    dataset   = EmbeddingVAEDataset(dataset_path)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    model = VariationalAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    model.train()
+    for epoch in range(epochs):
+        total = 0.0
+        for batch in dataloader:
+            x_in  = batch["input"].to(device)
+            x_tar = batch["target"].to(device)
+
+            optimizer.zero_grad()
+            x_recon, mu, logvar = model(x_in)
+            loss = vae_loss(x_recon, x_tar, mu, logvar)
+            loss.backward()
+            optimizer.step()
+
+            total += loss.item()
+
+        print(f"[Epoch {epoch+1}/{epochs}] Loss: {total/len(dataset):.4f}")
+
+    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    torch.save(model.state_dict(), model_save_path)
+    print(f"[OK] Modelo guardado → {model_save_path}")
+
+# ------------------- CLI ---------------------------------------------------
+if __name__ == "__main__":
+    load_dotenv()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="./config/config.yaml")
+    parser.add_argument("--model",  required=True, help="vae | dae | contrastive")
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--lr",     type=float)
+    parser.add_argument("--save_path")
+    args = parser.parse_args()
+
+    cfg        = load_config(args.config)
+    train_cfg  = cfg.get("training", {})
+    model_cfg  = cfg.get("models", {}).get(args.model.lower(), {})
+
+    set_seed(train_cfg.get("seed", 42))
+    device = resolve_device(train_cfg.get("device"))
+
+    # Garantizar embeddings UDA
+    ensure_uda_data(
+        output_dir="./data",
+        max_samples=train_cfg.get("max_samples"),
+        base_model_name=cfg["embedding_model"]["name"],
+    )
+
+    train_vae(
+        dataset_path = model_cfg.get("dataset_path", "./data/uda_vae_embeddings.pt"),
+        input_dim    = model_cfg.get("input_dim", 384),
+        latent_dim   = model_cfg.get("latent_dim", 64),
+        hidden_dim   = model_cfg.get("hidden_dim", 512),
+        batch_size   = train_cfg.get("batch_size", 32),
+        epochs       = args.epochs or train_cfg.get("epochs", 10),
+        lr           = args.lr or train_cfg.get("learning_rate", 1e-3),
+        model_save_path = args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/vae.pth"),
+        device       = device,
+    )
+
+"""
+
+utils/data_utils.py
+"""
+# utils/data_utils.py
+import os
+from typing import List, Tuple, Optional
+
+import torch
+from datasets import load_dataset
+from sentence_transformers import SentenceTransformer
+from tqdm.auto import tqdm
+
+###############################################################################
+#  UDA → Sentence-Transformer embeddings (*.pt)                               #
+###############################################################################
+
+def _compute_embeddings(
+    texts: List[str],
+    model: SentenceTransformer,
+    batch_size: int = 64,
+) -> torch.Tensor:
+    """Devuelve un tensor CPU float32 [N × D] con los CLS-embeddings."""
+    chunks: List[torch.Tensor] = []
+    for i in tqdm(range(0, len(texts), batch_size), desc="Embedding"):
+        batch = texts[i : i + batch_size]
+        with torch.no_grad():
+            emb = model.encode(batch, convert_to_numpy=True, show_progress_bar=False)
+            chunks.append(torch.from_numpy(emb))
+    return torch.cat(chunks, dim=0).float()
+
+
+def ensure_uda_data(
+    *,
+    output_dir: str = "./data",
+    max_samples: Optional[int] = None,
+    base_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    noise_std: float = 0.05,
+    force: bool = False,
+) -> None:
+    """Genera (o reutiliza) los ficheros de embeddings para VAE, DAE y contraste."""
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Paths ------------------------------------------------------------------
+    vae_path         = os.path.join(output_dir, "uda_vae_embeddings.pt")
+    dae_path         = os.path.join(output_dir, "uda_dae_embeddings.pt")
+    contrastive_path = os.path.join(output_dir, "uda_contrastive_embeddings.pt")
+
+    if (
+        not force
+        and os.path.exists(vae_path)
+        and os.path.exists(dae_path)
+        and os.path.exists(contrastive_path)
+    ):
+        print("[INFO] UDA embeddings ya preparados — nada que hacer.")
+        return
+
+    # -----------------------------------------------------------------------
+    #  1) Cargar UDA (con truncado opcional)
+    # -----------------------------------------------------------------------
+    print("[INFO] Descargando / cargando UDA…")
+    uda = load_dataset("osunlp/uda", split="train")
+    if max_samples is not None:
+        uda = uda.select(range(min(max_samples, len(uda))))
+    print(f"[INFO] UDA listo con {len(uda):,} ejemplos.")
+
+    # -----------------------------------------------------------------------
+    # 2) Obtener listas de textos
+    # -----------------------------------------------------------------------
+    clean_texts: List[str] = []
+    contrastive_triples: List[Tuple[str, str, str]] = []
+
+    for ex in uda:
+        q   = ex["query"]
+        pos = ex["positive_passages"][0]["text"]
+        neg = ex["negative_passages"][0]["text"]
+
+        clean_texts.append(pos)                   # target para VAE y DAE
+        contrastive_triples.append((q, pos, neg)) # triple para contraste
+
+    # -----------------------------------------------------------------------
+    # 3) Modelo SBERT → embeddings
+    # -----------------------------------------------------------------------
+    print(f"[INFO] Cargando SentenceTransformer '{base_model_name}' …")
+    st_model = SentenceTransformer(base_model_name)
+
+    print("[INFO] Generando embeddings VAE/DAE (positivos)…")
+    target_emb = _compute_embeddings(clean_texts, st_model)  # tensor CPU [N×D]
+
+    # ---------------- VAE ---------------------------------------------------
+    if force or not os.path.exists(vae_path):
+        torch.save({"input": target_emb, "target": target_emb.clone()}, vae_path)
+        print(f"[OK]  VAE embeddings guardados → {vae_path}")
+
+    # ---------------- DAE ---------------------------------------------------
+    if force or not os.path.exists(dae_path):
+        input_emb = target_emb + torch.randn_like(target_emb) * noise_std
+        torch.save({"input": input_emb, "target": target_emb}, dae_path)
+        print(f"[OK]  DAE embeddings guardados → {dae_path}")
+
+    # ---------------- Contrastive ------------------------------------------
+    if force or not os.path.exists(contrastive_path):
+        print("[INFO] Generando embeddings de triples (query/pos/neg)…")
+        qs, ps, ns = zip(*contrastive_triples)
+        q_emb = _compute_embeddings(list(qs), st_model)
+        p_emb = _compute_embeddings(list(ps), st_model)
+        n_emb = _compute_embeddings(list(ns), st_model)
+
+        torch.save({"query": q_emb, "positive": p_emb, "negative": n_emb}, contrastive_path)
+        print(f"[OK]  Contrastive embeddings guardados → {contrastive_path}")
+
+    print("[DONE] Preprocesado de UDA completo.")
+
+"""
+
+utils/load_config.py
+"""
+import numpy as np
+import yaml
+import os
+
+def load_config(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+"""
+
+utils/training_utils.py
+"""
+import os
+import random
+import torch
+import numpy as np
+
+def set_seed(seed: int = 42) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+def resolve_device(device_str: str | None = None) -> str:
+    if device_str is not None:
+        return device_str
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+"""
 

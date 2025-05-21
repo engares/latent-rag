@@ -1,79 +1,97 @@
-import json
+# /data/torch_datasets.py
 import torch
 from torch.utils.data import Dataset
-from typing import List, Dict, Optional
+from typing import Dict, List, Tuple
 
-# ---------------------------------------------------------
-# PyTorch Datasets for Autoencoder Training (DAE & Contrastive)
-# ---------------------------------------------------------
 
-class DAEDataset(Dataset):
-    def __init__(self, path: str, tokenizer, max_length: int = 256):
-        with open(path, "r", encoding="utf-8") as f:
-            self.samples = [json.loads(line) for line in f]
-        self.tokenizer = tokenizer
-        self.max_length = max_length
+# ---------- UTILIDADES COMUNES ------------------------------------------------
+def _load_pt(path: str) -> Dict[str, torch.Tensor]:
+    """
+    Carga un fichero .pt con tensores y asegura dtype = float32 en CPU.
+    El fichero se espera como un dict { name: Tensor }.
+    """
+    data = torch.load(path, map_location="cpu")
+    return {k: v.float() for k, v in data.items()}
 
-    def __len__(self):
-        return len(self.samples)
 
-    def __getitem__(self, idx):
-        item = self.samples[idx]
-        noisy_input = item["input"]
-        target = item["target"]
+# ---------- DATASETS ---------------------------------------------------------
 
-        encoded = self.tokenizer(
-            noisy_input,
-            max_length=self.max_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt"
-        )
-        target_encoded = self.tokenizer(
-            target,
-            max_length=self.max_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt"
-        )
-        return {
-            "input_ids": encoded["input_ids"].squeeze(0),
-            "attention_mask": encoded["attention_mask"].squeeze(0),
-            "target_ids": target_encoded["input_ids"].squeeze(0)
-        }
 
-class ContrastiveDataset(Dataset):
-    def __init__(self, path: str, tokenizer, max_length: int = 256):
-        with open(path, "r", encoding="utf-8") as f:
-            self.samples = [json.loads(line) for line in f]
-        self.tokenizer = tokenizer
-        self.max_length = max_length
+class EmbeddingVAEDataset(Dataset):
+    """
+    Carga el fichero .pt generado por `ensure_uda_data`.
+    Estructura esperada:
+        {"input": <tensor [N×D]>, "target": <tensor [N×D]>}
+    """
+    def __init__(self, path: str):
+        data = torch.load(path, map_location="cpu")
+        self.input  = data["input"].float()
+        self.target = data["target"].float()
+        assert self.input.shape == self.target.shape, "input/target tamaño desigual"
 
     def __len__(self):
-        return len(self.samples)
+        return self.input.size(0)
 
     def __getitem__(self, idx):
-        item = self.samples[idx]
-        query = item["query"]
-        pos = item["positive"]
-        neg = item["negative"]
-
-        q_enc = self.tokenizer(query, max_length=self.max_length, padding="max_length", truncation=True, return_tensors="pt")
-        p_enc = self.tokenizer(pos, max_length=self.max_length, padding="max_length", truncation=True, return_tensors="pt")
-        n_enc = self.tokenizer(neg, max_length=self.max_length, padding="max_length", truncation=True, return_tensors="pt")
-
         return {
-            "query_ids": q_enc["input_ids"].squeeze(0),
-            "pos_ids": p_enc["input_ids"].squeeze(0),
-            "neg_ids": n_enc["input_ids"].squeeze(0)
+            "input":  self.input[idx],
+            "target": self.target[idx],
         }
 
+
+class EmbeddingDAEDataset(Dataset):
+    """
+    Carga 'uda_dae_embeddings.pt' producido por `ensure_uda_data`.
+
+    Estructura:
+        {
+            "input":  Tensor [N × D]  (embeddings con ruido)
+            "target": Tensor [N × D]  (embeddings limpios)
+        }
+    """
+    def __init__(self, path: str):
+        d = torch.load(path, map_location="cpu")
+        self.x  = d["input" ].float()
+        self.y  = d["target"].float()
+        assert self.x.shape == self.y.shape, "Input / target mismatch"
+
+    def __len__(self):          return self.x.size(0)
+    def __getitem__(self, idx): return {"x": self.x[idx], "y": self.y[idx]}
+
+    
+
+class EmbeddingTripletDataset(Dataset):
+    """
+    Carga 'uda_contrastive_embeddings.pt' generado por `ensure_uda_data`.
+
+    Estructura esperada:
+        {
+            "query":     Tensor [N × D],
+            "positive":  Tensor [N × D],
+            "negative":  Tensor [N × D]
+        }
+    """
+    def __init__(self, path: str):
+        data = torch.load(path, map_location="cpu")
+        self.q  = data["query"    ].float()
+        self.p  = data["positive" ].float()
+        self.n  = data["negative" ].float()
+        assert self.q.shape == self.p.shape == self.n.shape, "Dimensiones incompatibles"
+
+    def __len__(self) -> int:          return self.q.size(0)
+
+    def __getitem__(self, idx):        # devuelvo tensores individuales
+        return {"q": self.q[idx],
+                "p": self.p[idx],
+                "n": self.n[idx]}
+
+
+# ---------- PRUEBA RÁPIDA -----------------------------------------------------
 if __name__ == "__main__":
-    from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+    dae_ds = EmbeddingDAEDataset("./data/uda_dae_embeddings.pt")
+    vae_ds = EmbeddingDAEDataset("./data/uda_vae_embeddings.pt")
+    con_ds = EmbeddingTripletDataset("./data/uda_contrastive_embeddings.pt")
 
-    dae_ds = DAEDataset("./data/uda_dae_train.jsonl", tokenizer)
-    contrastive_ds = ContrastiveDataset("./data/uda_contrastive_train.jsonl", tokenizer)
-
-    print("[DAE]", dae_ds[0])
-    print("[Contrastive]", contrastive_ds[0])
+    print("DAE sample ⇒", {k: v.shape for k, v in dae_ds[0].items()})
+    print("Contrastive sample ⇒", {k: v.shape for k, v in con_ds[0].items()})
+    print("VAE sample ⇒", {k: v.shape for k, v in vae_ds[0].items()})
