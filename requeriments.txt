@@ -17,7 +17,8 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 
 # Evaluation Metrics (Efficient and Torch-Compatible)
-rouge>=1.0.1
+rouge-score
+sacrebleu
 
 # Configuration & Utilities
 pyyaml>=6.0
