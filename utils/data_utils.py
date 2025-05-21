@@ -6,6 +6,9 @@ import torch
 from datasets import load_dataset
 from sentence_transformers import SentenceTransformer
 from tqdm.auto import tqdm
+import random
+from torch.utils.data import Subset
+
 
 ###############################################################################
 #  UDA → Sentence-Transformer embeddings (*.pt)                               #
@@ -106,3 +109,15 @@ def ensure_uda_data(
         print(f"[OK]  Contrastive embeddings guardados → {contrastive_path}")
 
     print("[DONE] Preprocesado de UDA completo.")
+
+
+
+def split_dataset(dataset: torch.utils.data.Dataset, val_split: float = 0.1, seed: int = 42) -> Tuple[Subset, Subset]:
+    """Divide el dataset en train/val de forma estratificada simple (aleatoria)."""
+    n_total = len(dataset)
+    idx = list(range(n_total))
+    random.Random(seed).shuffle(idx)
+    n_val = int(n_total * val_split)
+    val_idx = idx[:n_val]
+    train_idx = idx[n_val:]
+    return Subset(dataset, train_idx), Subset(dataset, val_idx)

@@ -1,21 +1,24 @@
-# training/train_cae.py – Contrastive Auto‑Encoder con hard‑negative mining
+# training/train_cae.py – Contrastive Auto‑Encoder con hard‑negative mining y validación
 
 from __future__ import annotations
 
 import argparse
 import os
-from typing import Optional
+import random
+from typing import Optional, Tuple
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from data.torch_datasets import EmbeddingTripletDataset
 from models.contrastive_autoencoder import ContrastiveAutoencoder
 from training.loss_functions import contrastive_loss
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
-from utils.data_utils import ensure_uda_data
+from utils.data_utils import ensure_uda_data, split_dataset
 from dotenv import load_dotenv
+
+
 
 ###############################################################################
 #  ENTRENAMIENTO                                                               #
@@ -31,43 +34,78 @@ def train_cae(
     lr: float,
     model_save_path: str,
     hard_negatives: bool = True,
+    val_split: float = 0.1,
+    patience: Optional[int] = 5,
+    margin: float = 0.2,
     device: Optional[str] = None,
 ):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training Contrastive AE on {device}  |  hard_negatives={hard_negatives}")
+    print(
+        f"[INFO] Training Contrastive AE on {device} | hard_negatives={hard_negatives} | val_split={val_split}"
+    )
 
-    # ---------------- Dataset & Dataloader ----------------
-    ds = EmbeddingTripletDataset(dataset_path)
-    dl = DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    # ---------------- Dataset ---------------------------
+    full_ds = EmbeddingTripletDataset(dataset_path)
+    train_ds, val_ds = split_dataset(full_ds, val_split=val_split)
+    dl_train = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True)
+    dl_val = DataLoader(val_ds, batch_size=batch_size, shuffle=False, drop_last=False)
 
-    # ---------------- Model & Optimizer -------------------
+    # ---------------- Model & Optimizer -----------------
     model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
     optim = torch.optim.Adam(model.parameters(), lr=lr)
 
-    # ---------------- Training Loop -----------------------
-    model.train()
-    for ep in range(epochs):
+    best_val = float("inf")
+    no_improve = 0
+
+    # ---------------- Training Loop ---------------------
+    for epoch in range(1, epochs + 1):
+        model.train()
         running = 0.0
-        for batch in dl:
+        for batch in dl_train:
             q = batch["q"].to(device)
-            pos = batch["p"].to(device)
+            p = batch["p"].to(device)
 
             optim.zero_grad()
             z_q = model.encode(q)
-            z_pos = model.encode(pos)
-            loss = contrastive_loss(z_q, z_pos, hard_negatives=hard_negatives)
+            z_pos = model.encode(p)
+            loss = contrastive_loss(z_q, z_pos, margin=margin, hard_negatives=hard_negatives)
             loss.backward()
             optim.step()
-
             running += loss.item() * q.size(0)
 
-        epoch_loss = running / len(ds)
-        print(f"[Epoch {ep+1:02d}/{epochs}]  Loss: {epoch_loss:.4f}")
+        train_loss = running / len(train_ds)
 
-    # ---------------- Save -------------------------------
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    torch.save(model.state_dict(), model_save_path)
-    print(f"[OK] Modelo guardado → {model_save_path}")
+        # ---------------- Validation --------------------
+        model.eval()
+        with torch.no_grad():
+            val_running = 0.0
+            for batch in dl_val:
+                q = batch["q"].to(device)
+                p = batch["p"].to(device)
+                z_q = model.encode(q)
+                z_pos = model.encode(p)
+                vloss = contrastive_loss(z_q, z_pos, margin=margin, hard_negatives=hard_negatives)
+                val_running += vloss.item() * q.size(0)
+            val_loss = val_running / len(val_ds)
+
+        print(
+            f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}"
+        )
+
+        # ---------------- Early stopping ---------------
+        if val_loss < best_val - 1e-4:  # pequeña tolerancia
+            best_val = val_loss
+            no_improve = 0
+            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+            torch.save(model.state_dict(), model_save_path)
+            print(f"  -> Nueva mejor val_loss. Checkpoint guardado en {model_save_path}")
+        else:
+            no_improve += 1
+            if patience and no_improve >= patience:
+                print("[EARLY STOP] Sin mejora en validación.")
+                break
+
+    print(f"[DONE] Mejor val_loss = {best_val:.6f}")
 
 ###############################################################################
 #  CLI                                                                        #
@@ -76,24 +114,19 @@ def train_cae(
 if __name__ == "__main__":
     load_dotenv()
 
-    ap = argparse.ArgumentParser(description="Train Contrastive Auto‑Encoder (CAE)")
-    ap.add_argument("--config", default="./config/config.yaml", help="Ruta YAML de configuración")
-    ap.add_argument("--epochs", type=int, help="Número de épocas (override)")
-    ap.add_argument("--lr", type=float, help="Learning rate (override)")
-    ap.add_argument("--save_path", help="Ruta para guardar el checkpoint")
-    ap.add_argument(
-        "--batch_size",
-        type=int,
-        help="Tamaño de batch (override, por defecto el del YAML o 256)",
-    )
-    ap.add_argument(
-        "--no-hard-negatives",
-        action="store_true",
-        help="Desactiva el hard‑negative mining in‑batch",
-    )
-    args = ap.parse_args()
+    parser = argparse.ArgumentParser(description="Train Contrastive Auto‑Encoder (CAE)")
+    parser.add_argument("--config", default="./config/config.yaml", help="Ruta YAML de configuración")
+    parser.add_argument("--epochs", type=int)
+    parser.add_argument("--lr", type=float)
+    parser.add_argument("--save_path")
+    parser.add_argument("--batch_size", type=int)
+    parser.add_argument("--val_split", type=float, default=0.1, help="Proporción para validación")
+    parser.add_argument("--patience", type=int, default=5, help="Paciencia early‑stopping; 0 = off")
+    parser.add_argument("--no-hard-negatives", action="store_true")
+    parser.add_argument("--margin", type=float, default=0.2)
+    args = parser.parse_args()
 
-    # ---------------- Config ------------------------------
+    # ---------------- Config ---------------------------
     cfg = load_config(args.config)
     train_cfg = cfg.get("training", {})
     model_cfg = cfg.get("models", {}).get("contrastive", {})
@@ -101,14 +134,14 @@ if __name__ == "__main__":
     set_seed(train_cfg.get("seed", 42))
     device = resolve_device(train_cfg.get("device"))
 
-    # ---------------- Embeddings UDA ----------------------
+    # ---------------- Embeddings UDA -------------------
     ensure_uda_data(
         output_dir="./data",
         max_samples=train_cfg.get("max_samples"),
         base_model_name=cfg.get("embedding_model", {})["name"],
     )
 
-    # ---------------- Entrenamiento ----------------------
+    # ---------------- Entrenamiento -------------------
     train_cae(
         dataset_path=model_cfg.get("dataset_path", "./data/uda_contrastive_embeddings.pt"),
         input_dim=model_cfg.get("input_dim", 384),
@@ -121,5 +154,8 @@ if __name__ == "__main__":
             "checkpoint", "./models/checkpoints/contrastive_ae.pth"
         ),
         hard_negatives=not args.no_hard_negatives,
+        val_split=args.val_split,
+        patience=None if args.patience == 0 else args.patience,
+        margin=args.margin,
         device=device,
     )
