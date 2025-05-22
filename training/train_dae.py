@@ -48,7 +48,7 @@ def train_dae(
 
     # ---------------- Model & Optimizer ----------------
     model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
+    optim = torch.optim.Adam(model.parameters(), lr= 1e-3) # ARREGLAR **************************************************************
 
     best_val = float("inf")
     no_improve = 0
@@ -90,7 +90,7 @@ def train_dae(
             no_improve = 0
             os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
             torch.save(model.state_dict(), model_save_path)
-            print(f"  -> Nuevo mejor val_loss. Checkpoint guardado en {model_save_path}")
+            print(f"  -> Checkpoint saved in {model_save_path}")
         else:
             no_improve += 1
             if patience and no_improve >= patience:
