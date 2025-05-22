@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import argparse
 import os
-import random
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 
 from data.torch_datasets import EmbeddingVAEDataset
 from models.variational_autoencoder import VariationalAutoencoder
 from training.loss_functions import vae_loss
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
-from utils.data_utils import ensure_uda_data, split_dataset  # split util añadido
+from utils.data_utils import ensure_uda_data, split_dataset 
+from utils.load_config import init_logger
 from dotenv import load_dotenv
 
 ###############################################################################
@@ -37,6 +37,9 @@ def train_vae(
 ):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Training VAE on {device} | val_split={val_split}")
+
+    log.main.info("")
+    log.main.info("Training VAE | device=%s | deterministic=%s", device, train_cfg["deterministic"])
 
     # ---------------- Dataset ---------------------------
     full_ds = EmbeddingVAEDataset(dataset_path)
@@ -81,6 +84,7 @@ def train_vae(
             val_loss = val_running / len(val_ds)
 
         print(f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}")
+        log.train.info("[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss)
 
         # ---------------- Early stopping ---------------
         if val_loss < best_val - 1e-4:
@@ -88,14 +92,18 @@ def train_vae(
             no_improve = 0
             os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
             torch.save(model.state_dict(), model_save_path)
-            print(f"  -> Nuevo mejor val_loss. Checkpoint guardado en {model_save_path}")
+            print(f"  -> New best val_loss. Checkpoint saved at {model_save_path}")
+            log.train.info("New best val_loss: %.6f → checkpoint %s", best_val, model_save_path)
         else:
             no_improve += 1
             if patience and no_improve >= patience:
-                print("[EARLY STOP] Sin mejora en validación.")
+                print("[EARLY STOP] No improvement in validation.")
+                log.train.info("[EARLY STOP] No improvement in validation.")
                 break
 
     print(f"[DONE] Mejor val_loss = {best_val:.6f}")
+    log.main.info("[DONE] Best val_loss = %.6f", best_val)
+    log.main.info("\n")
 
 ###############################################################################
 #  CLI                                                                        #
@@ -118,8 +126,10 @@ if __name__ == "__main__":
     cfg = load_config(args.config)
     train_cfg = cfg.get("training", {})
     model_cfg = cfg.get("models", {}).get("vae", {})
+    log = init_logger(cfg["logging"])           
 
-    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False))
+
+    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False), logger=log.train)
     device = resolve_device(train_cfg.get("device"))
 
     # ---------------- Embeddings UDA -------------------

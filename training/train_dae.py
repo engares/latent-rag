@@ -1,14 +1,13 @@
-# training/train_dae.py – Denoising Auto‑Encoder con validación y early‑stopping
+# training/train_dae.py – Denoising Auto‑Encoder con validación y early‑stopping
 
 from __future__ import annotations
 
 import argparse
 import os
-import random
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 
 from data.torch_datasets import EmbeddingDAEDataset
 from models.denoising_autoencoder import DenoisingAutoencoder
@@ -16,6 +15,7 @@ from training.loss_functions import dae_loss
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
 from utils.data_utils import ensure_uda_data, split_dataset
+from utils.load_config import init_logger               # NUEVO
 from dotenv import load_dotenv
 
 ###############################################################################
@@ -31,14 +31,15 @@ def train_dae(
     epochs: int,
     lr: float,
     model_save_path: str,
+    logger,
     val_split: float = 0.1,
     patience: Optional[int] = 5,
     device: Optional[str] = None,
 ):
-    """Entrena un Denoising Auto‑Encoder con split de validación y early‑stopping."""
-
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Training DAE on {device} | val_split={val_split}")
+    logger.main.info("")
+    logger.main.info("Training DAE | device=%s | deterministic=%s", device, train_cfg["deterministic"])
 
     # ---------------- Dataset --------------------------
     full_ds = EmbeddingDAEDataset(dataset_path)
@@ -83,6 +84,7 @@ def train_dae(
             val_loss = val_running / len(val_ds)
 
         print(f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}")
+        logger.train.info("[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss)
 
         # ---------------- Early Stopping --------------
         if val_loss < best_val - 1e-4:
@@ -91,13 +93,17 @@ def train_dae(
             os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
             torch.save(model.state_dict(), model_save_path)
             print(f"  -> Checkpoint saved in {model_save_path}")
+            logger.train.info("New best val_loss: %.6f → checkpoint %s", best_val, model_save_path)
         else:
             no_improve += 1
             if patience and no_improve >= patience:
-                print("[EARLY STOP] Sin mejora en validación.")
+                print("[EARLY STOP] No improvement in validation.")
+                logger.train.info("[EARLY STOP] No improvement in validation.")
                 break
 
     print(f"[DONE] Mejor val_loss = {best_val:.6f}")
+    logger.main.info("[DONE] Best val_loss = %.6f", best_val)
+    logger.main.info("")
 
 ###############################################################################
 #  CLI                                                                        #
@@ -116,20 +122,24 @@ if __name__ == "__main__":
     parser.add_argument("--patience", type=int, default=5)
     args = parser.parse_args()
 
+    # ---------------- Config & logging ----------------
     cfg = load_config(args.config)
     train_cfg = cfg.get("training", {})
     model_cfg = cfg.get("models", {}).get("dae", {})
+    log = init_logger(cfg["logging"])
 
-    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False))
+    # ---------------- Reproducibilidad ----------------
+    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False), logger=log.train)
     device = resolve_device(train_cfg.get("device"))
 
-    # Garantizar embeddings UDA
+    # ---------------- Embeddings -----------------------
     ensure_uda_data(
         output_dir="./data",
         max_samples=train_cfg.get("max_samples"),
         base_model_name=cfg.get("embedding_model", {})["name"],
     )
 
+    # ---------------- Entrenamiento -------------------
     train_dae(
         dataset_path=model_cfg.get("dataset_path", "./data/uda_dae_embeddings.pt"),
         input_dim=model_cfg.get("input_dim", 384),
@@ -142,4 +152,5 @@ if __name__ == "__main__":
         val_split=args.val_split,
         patience=None if args.patience == 0 else args.patience,
         device=device,
+        logger=log
     )

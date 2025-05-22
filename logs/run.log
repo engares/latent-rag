@@ -1,0 +1,302 @@
+2025-05-22 21:03:48,387 [INFO] main: Training VAE | device=cuda | deterministic=False
+2025-05-22 21:03:50,744 [INFO] train: [Epoch 01/50] train=1.040769 | val=0.339647
+2025-05-22 21:03:50,747 [INFO] train: New best val_loss: 0.339647 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:50,789 [INFO] train: [Epoch 02/50] train=0.203172 | val=0.138071
+2025-05-22 21:03:50,793 [INFO] train: New best val_loss: 0.138071 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:50,832 [INFO] train: [Epoch 03/50] train=0.097964 | val=0.087412
+2025-05-22 21:03:50,835 [INFO] train: New best val_loss: 0.087412 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:50,873 [INFO] train: [Epoch 04/50] train=0.063628 | val=0.067163
+2025-05-22 21:03:50,876 [INFO] train: New best val_loss: 0.067163 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:50,910 [INFO] train: [Epoch 05/50] train=0.047223 | val=0.055923
+2025-05-22 21:03:50,913 [INFO] train: New best val_loss: 0.055923 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:50,947 [INFO] train: [Epoch 06/50] train=0.037623 | val=0.047982
+2025-05-22 21:03:50,950 [INFO] train: New best val_loss: 0.047982 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:50,985 [INFO] train: [Epoch 07/50] train=0.031099 | val=0.042250
+2025-05-22 21:03:50,987 [INFO] train: New best val_loss: 0.042250 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,022 [INFO] train: [Epoch 08/50] train=0.026186 | val=0.038110
+2025-05-22 21:03:51,025 [INFO] train: New best val_loss: 0.038110 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,059 [INFO] train: [Epoch 09/50] train=0.022626 | val=0.034753
+2025-05-22 21:03:51,061 [INFO] train: New best val_loss: 0.034753 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,095 [INFO] train: [Epoch 10/50] train=0.019681 | val=0.031915
+2025-05-22 21:03:51,098 [INFO] train: New best val_loss: 0.031915 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,132 [INFO] train: [Epoch 11/50] train=0.017567 | val=0.029697
+2025-05-22 21:03:51,134 [INFO] train: New best val_loss: 0.029697 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,168 [INFO] train: [Epoch 12/50] train=0.015687 | val=0.027702
+2025-05-22 21:03:51,171 [INFO] train: New best val_loss: 0.027702 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,206 [INFO] train: [Epoch 13/50] train=0.014177 | val=0.026176
+2025-05-22 21:03:51,209 [INFO] train: New best val_loss: 0.026176 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,243 [INFO] train: [Epoch 14/50] train=0.012913 | val=0.024864
+2025-05-22 21:03:51,245 [INFO] train: New best val_loss: 0.024864 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,280 [INFO] train: [Epoch 15/50] train=0.011794 | val=0.023666
+2025-05-22 21:03:51,283 [INFO] train: New best val_loss: 0.023666 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,319 [INFO] train: [Epoch 16/50] train=0.010915 | val=0.022518
+2025-05-22 21:03:51,321 [INFO] train: New best val_loss: 0.022518 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,357 [INFO] train: [Epoch 17/50] train=0.010147 | val=0.021706
+2025-05-22 21:03:51,360 [INFO] train: New best val_loss: 0.021706 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,395 [INFO] train: [Epoch 18/50] train=0.009480 | val=0.020912
+2025-05-22 21:03:51,398 [INFO] train: New best val_loss: 0.020912 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,433 [INFO] train: [Epoch 19/50] train=0.008917 | val=0.020208
+2025-05-22 21:03:51,435 [INFO] train: New best val_loss: 0.020208 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,469 [INFO] train: [Epoch 20/50] train=0.008375 | val=0.019554
+2025-05-22 21:03:51,472 [INFO] train: New best val_loss: 0.019554 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,508 [INFO] train: [Epoch 21/50] train=0.007941 | val=0.019015
+2025-05-22 21:03:51,510 [INFO] train: New best val_loss: 0.019015 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,544 [INFO] train: [Epoch 22/50] train=0.007503 | val=0.018484
+2025-05-22 21:03:51,547 [INFO] train: New best val_loss: 0.018484 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,585 [INFO] train: [Epoch 23/50] train=0.007118 | val=0.017981
+2025-05-22 21:03:51,588 [INFO] train: New best val_loss: 0.017981 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,629 [INFO] train: [Epoch 24/50] train=0.006826 | val=0.017546
+2025-05-22 21:03:51,632 [INFO] train: New best val_loss: 0.017546 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,673 [INFO] train: [Epoch 25/50] train=0.006520 | val=0.017189
+2025-05-22 21:03:51,676 [INFO] train: New best val_loss: 0.017189 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,716 [INFO] train: [Epoch 26/50] train=0.006273 | val=0.016833
+2025-05-22 21:03:51,719 [INFO] train: New best val_loss: 0.016833 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,759 [INFO] train: [Epoch 27/50] train=0.006022 | val=0.016424
+2025-05-22 21:03:51,762 [INFO] train: New best val_loss: 0.016424 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,800 [INFO] train: [Epoch 28/50] train=0.005807 | val=0.016164
+2025-05-22 21:03:51,802 [INFO] train: New best val_loss: 0.016164 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,840 [INFO] train: [Epoch 29/50] train=0.005605 | val=0.015944
+2025-05-22 21:03:51,843 [INFO] train: New best val_loss: 0.015944 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,877 [INFO] train: [Epoch 30/50] train=0.005420 | val=0.015590
+2025-05-22 21:03:51,880 [INFO] train: New best val_loss: 0.015590 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,915 [INFO] train: [Epoch 31/50] train=0.005244 | val=0.015307
+2025-05-22 21:03:51,917 [INFO] train: New best val_loss: 0.015307 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,953 [INFO] train: [Epoch 32/50] train=0.005097 | val=0.015070
+2025-05-22 21:03:51,955 [INFO] train: New best val_loss: 0.015070 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:51,989 [INFO] train: [Epoch 33/50] train=0.004973 | val=0.014845
+2025-05-22 21:03:51,992 [INFO] train: New best val_loss: 0.014845 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,029 [INFO] train: [Epoch 34/50] train=0.004818 | val=0.014600
+2025-05-22 21:03:52,031 [INFO] train: New best val_loss: 0.014600 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,067 [INFO] train: [Epoch 35/50] train=0.004711 | val=0.014448
+2025-05-22 21:03:52,070 [INFO] train: New best val_loss: 0.014448 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,106 [INFO] train: [Epoch 36/50] train=0.004584 | val=0.014220
+2025-05-22 21:03:52,109 [INFO] train: New best val_loss: 0.014220 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,145 [INFO] train: [Epoch 37/50] train=0.004486 | val=0.014107
+2025-05-22 21:03:52,148 [INFO] train: New best val_loss: 0.014107 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,184 [INFO] train: [Epoch 38/50] train=0.004376 | val=0.013878
+2025-05-22 21:03:52,186 [INFO] train: New best val_loss: 0.013878 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,223 [INFO] train: [Epoch 39/50] train=0.004291 | val=0.013738
+2025-05-22 21:03:52,226 [INFO] train: New best val_loss: 0.013738 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,260 [INFO] train: [Epoch 40/50] train=0.004208 | val=0.013572
+2025-05-22 21:03:52,262 [INFO] train: New best val_loss: 0.013572 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,296 [INFO] train: [Epoch 41/50] train=0.004135 | val=0.013458
+2025-05-22 21:03:52,298 [INFO] train: New best val_loss: 0.013458 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,333 [INFO] train: [Epoch 42/50] train=0.004070 | val=0.013264
+2025-05-22 21:03:52,335 [INFO] train: New best val_loss: 0.013264 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,370 [INFO] train: [Epoch 43/50] train=0.003997 | val=0.013163
+2025-05-22 21:03:52,373 [INFO] train: New best val_loss: 0.013163 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,413 [INFO] train: [Epoch 44/50] train=0.003937 | val=0.012936
+2025-05-22 21:03:52,416 [INFO] train: New best val_loss: 0.012936 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,458 [INFO] train: [Epoch 45/50] train=0.003874 | val=0.012889
+2025-05-22 21:03:52,496 [INFO] train: [Epoch 46/50] train=0.003809 | val=0.012784
+2025-05-22 21:03:52,499 [INFO] train: New best val_loss: 0.012784 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,537 [INFO] train: [Epoch 47/50] train=0.003749 | val=0.012658
+2025-05-22 21:03:52,540 [INFO] train: New best val_loss: 0.012658 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,579 [INFO] train: [Epoch 48/50] train=0.003693 | val=0.012542
+2025-05-22 21:03:52,582 [INFO] train: New best val_loss: 0.012542 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:03:52,621 [INFO] train: [Epoch 49/50] train=0.003655 | val=0.012522
+2025-05-22 21:03:52,659 [INFO] train: [Epoch 50/50] train=0.003612 | val=0.012359
+2025-05-22 21:03:52,662 [INFO] train: New best val_loss: 0.012359 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:26,604 [INFO] main: Training VAE | device=cuda | deterministic=False
+2025-05-22 21:04:28,990 [INFO] train: [Epoch 01/50] train=1.040769 | val=0.339647
+2025-05-22 21:04:28,994 [INFO] train: New best val_loss: 0.339647 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,035 [INFO] train: [Epoch 02/50] train=0.203172 | val=0.138071
+2025-05-22 21:04:29,038 [INFO] train: New best val_loss: 0.138071 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,080 [INFO] train: [Epoch 03/50] train=0.097964 | val=0.087412
+2025-05-22 21:04:29,083 [INFO] train: New best val_loss: 0.087412 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,129 [INFO] train: [Epoch 04/50] train=0.063628 | val=0.067163
+2025-05-22 21:04:29,131 [INFO] train: New best val_loss: 0.067163 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,169 [INFO] train: [Epoch 05/50] train=0.047223 | val=0.055923
+2025-05-22 21:04:29,172 [INFO] train: New best val_loss: 0.055923 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,208 [INFO] train: [Epoch 06/50] train=0.037623 | val=0.047982
+2025-05-22 21:04:29,211 [INFO] train: New best val_loss: 0.047982 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,247 [INFO] train: [Epoch 07/50] train=0.031099 | val=0.042250
+2025-05-22 21:04:29,250 [INFO] train: New best val_loss: 0.042250 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,287 [INFO] train: [Epoch 08/50] train=0.026186 | val=0.038110
+2025-05-22 21:04:29,289 [INFO] train: New best val_loss: 0.038110 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,326 [INFO] train: [Epoch 09/50] train=0.022626 | val=0.034753
+2025-05-22 21:04:29,328 [INFO] train: New best val_loss: 0.034753 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,363 [INFO] train: [Epoch 10/50] train=0.019681 | val=0.031915
+2025-05-22 21:04:29,365 [INFO] train: New best val_loss: 0.031915 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,400 [INFO] train: [Epoch 11/50] train=0.017567 | val=0.029697
+2025-05-22 21:04:29,402 [INFO] train: New best val_loss: 0.029697 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,439 [INFO] train: [Epoch 12/50] train=0.015687 | val=0.027702
+2025-05-22 21:04:29,442 [INFO] train: New best val_loss: 0.027702 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,478 [INFO] train: [Epoch 13/50] train=0.014177 | val=0.026176
+2025-05-22 21:04:29,481 [INFO] train: New best val_loss: 0.026176 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,515 [INFO] train: [Epoch 14/50] train=0.012913 | val=0.024864
+2025-05-22 21:04:29,517 [INFO] train: New best val_loss: 0.024864 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,551 [INFO] train: [Epoch 15/50] train=0.011794 | val=0.023666
+2025-05-22 21:04:29,553 [INFO] train: New best val_loss: 0.023666 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,588 [INFO] train: [Epoch 16/50] train=0.010915 | val=0.022518
+2025-05-22 21:04:29,590 [INFO] train: New best val_loss: 0.022518 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,630 [INFO] train: [Epoch 17/50] train=0.010147 | val=0.021706
+2025-05-22 21:04:29,632 [INFO] train: New best val_loss: 0.021706 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,668 [INFO] train: [Epoch 18/50] train=0.009480 | val=0.020912
+2025-05-22 21:04:29,671 [INFO] train: New best val_loss: 0.020912 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,705 [INFO] train: [Epoch 19/50] train=0.008917 | val=0.020208
+2025-05-22 21:04:29,708 [INFO] train: New best val_loss: 0.020208 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,746 [INFO] train: [Epoch 20/50] train=0.008375 | val=0.019554
+2025-05-22 21:04:29,748 [INFO] train: New best val_loss: 0.019554 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,788 [INFO] train: [Epoch 21/50] train=0.007941 | val=0.019015
+2025-05-22 21:04:29,790 [INFO] train: New best val_loss: 0.019015 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,829 [INFO] train: [Epoch 22/50] train=0.007503 | val=0.018484
+2025-05-22 21:04:29,831 [INFO] train: New best val_loss: 0.018484 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,868 [INFO] train: [Epoch 23/50] train=0.007118 | val=0.017981
+2025-05-22 21:04:29,871 [INFO] train: New best val_loss: 0.017981 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,906 [INFO] train: [Epoch 24/50] train=0.006826 | val=0.017546
+2025-05-22 21:04:29,908 [INFO] train: New best val_loss: 0.017546 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,944 [INFO] train: [Epoch 25/50] train=0.006520 | val=0.017189
+2025-05-22 21:04:29,946 [INFO] train: New best val_loss: 0.017189 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:29,982 [INFO] train: [Epoch 26/50] train=0.006273 | val=0.016833
+2025-05-22 21:04:29,984 [INFO] train: New best val_loss: 0.016833 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,023 [INFO] train: [Epoch 27/50] train=0.006022 | val=0.016424
+2025-05-22 21:04:30,026 [INFO] train: New best val_loss: 0.016424 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,063 [INFO] train: [Epoch 28/50] train=0.005807 | val=0.016164
+2025-05-22 21:04:30,066 [INFO] train: New best val_loss: 0.016164 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,102 [INFO] train: [Epoch 29/50] train=0.005605 | val=0.015944
+2025-05-22 21:04:30,105 [INFO] train: New best val_loss: 0.015944 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,142 [INFO] train: [Epoch 30/50] train=0.005420 | val=0.015590
+2025-05-22 21:04:30,145 [INFO] train: New best val_loss: 0.015590 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,181 [INFO] train: [Epoch 31/50] train=0.005244 | val=0.015307
+2025-05-22 21:04:30,183 [INFO] train: New best val_loss: 0.015307 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,218 [INFO] train: [Epoch 32/50] train=0.005097 | val=0.015070
+2025-05-22 21:04:30,221 [INFO] train: New best val_loss: 0.015070 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,261 [INFO] train: [Epoch 33/50] train=0.004973 | val=0.014845
+2025-05-22 21:04:30,264 [INFO] train: New best val_loss: 0.014845 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,302 [INFO] train: [Epoch 34/50] train=0.004818 | val=0.014600
+2025-05-22 21:04:30,304 [INFO] train: New best val_loss: 0.014600 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,339 [INFO] train: [Epoch 35/50] train=0.004711 | val=0.014448
+2025-05-22 21:04:30,342 [INFO] train: New best val_loss: 0.014448 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,377 [INFO] train: [Epoch 36/50] train=0.004584 | val=0.014220
+2025-05-22 21:04:30,380 [INFO] train: New best val_loss: 0.014220 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,415 [INFO] train: [Epoch 37/50] train=0.004486 | val=0.014107
+2025-05-22 21:04:30,417 [INFO] train: New best val_loss: 0.014107 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,455 [INFO] train: [Epoch 38/50] train=0.004376 | val=0.013878
+2025-05-22 21:04:30,458 [INFO] train: New best val_loss: 0.013878 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,496 [INFO] train: [Epoch 39/50] train=0.004291 | val=0.013738
+2025-05-22 21:04:30,498 [INFO] train: New best val_loss: 0.013738 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,539 [INFO] train: [Epoch 40/50] train=0.004208 | val=0.013572
+2025-05-22 21:04:30,542 [INFO] train: New best val_loss: 0.013572 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,582 [INFO] train: [Epoch 41/50] train=0.004135 | val=0.013458
+2025-05-22 21:04:30,585 [INFO] train: New best val_loss: 0.013458 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,623 [INFO] train: [Epoch 42/50] train=0.004070 | val=0.013264
+2025-05-22 21:04:30,626 [INFO] train: New best val_loss: 0.013264 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,665 [INFO] train: [Epoch 43/50] train=0.003997 | val=0.013163
+2025-05-22 21:04:30,667 [INFO] train: New best val_loss: 0.013163 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,705 [INFO] train: [Epoch 44/50] train=0.003937 | val=0.012936
+2025-05-22 21:04:30,708 [INFO] train: New best val_loss: 0.012936 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,742 [INFO] train: [Epoch 45/50] train=0.003874 | val=0.012889
+2025-05-22 21:04:30,778 [INFO] train: [Epoch 46/50] train=0.003809 | val=0.012784
+2025-05-22 21:04:30,781 [INFO] train: New best val_loss: 0.012784 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,816 [INFO] train: [Epoch 47/50] train=0.003749 | val=0.012658
+2025-05-22 21:04:30,819 [INFO] train: New best val_loss: 0.012658 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,858 [INFO] train: [Epoch 48/50] train=0.003693 | val=0.012542
+2025-05-22 21:04:30,861 [INFO] train: New best val_loss: 0.012542 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:04:30,896 [INFO] train: [Epoch 49/50] train=0.003655 | val=0.012522
+2025-05-22 21:04:30,933 [INFO] train: [Epoch 50/50] train=0.003612 | val=0.012359
+2025-05-22 21:04:30,936 [INFO] train: New best val_loss: 0.012359 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:50,831 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-22 21:25:50,832 [INFO] main: 
+Training VAE | device=cuda | deterministic=False
+2025-05-22 21:25:53,133 [INFO] train: [Epoch 01/50] train=1.040769 | val=0.339647
+2025-05-22 21:25:53,137 [INFO] train: New best val_loss: 0.339647 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,177 [INFO] train: [Epoch 02/50] train=0.203172 | val=0.138071
+2025-05-22 21:25:53,180 [INFO] train: New best val_loss: 0.138071 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,221 [INFO] train: [Epoch 03/50] train=0.097964 | val=0.087412
+2025-05-22 21:25:53,225 [INFO] train: New best val_loss: 0.087412 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,265 [INFO] train: [Epoch 04/50] train=0.063628 | val=0.067163
+2025-05-22 21:25:53,268 [INFO] train: New best val_loss: 0.067163 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,308 [INFO] train: [Epoch 05/50] train=0.047223 | val=0.055923
+2025-05-22 21:25:53,311 [INFO] train: New best val_loss: 0.055923 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,352 [INFO] train: [Epoch 06/50] train=0.037623 | val=0.047982
+2025-05-22 21:25:53,355 [INFO] train: New best val_loss: 0.047982 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,395 [INFO] train: [Epoch 07/50] train=0.031099 | val=0.042250
+2025-05-22 21:25:53,397 [INFO] train: New best val_loss: 0.042250 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,438 [INFO] train: [Epoch 08/50] train=0.026186 | val=0.038110
+2025-05-22 21:25:53,441 [INFO] train: New best val_loss: 0.038110 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,483 [INFO] train: [Epoch 09/50] train=0.022626 | val=0.034753
+2025-05-22 21:25:53,486 [INFO] train: New best val_loss: 0.034753 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,527 [INFO] train: [Epoch 10/50] train=0.019681 | val=0.031915
+2025-05-22 21:25:53,530 [INFO] train: New best val_loss: 0.031915 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,567 [INFO] train: [Epoch 11/50] train=0.017567 | val=0.029697
+2025-05-22 21:25:53,570 [INFO] train: New best val_loss: 0.029697 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,609 [INFO] train: [Epoch 12/50] train=0.015687 | val=0.027702
+2025-05-22 21:25:53,611 [INFO] train: New best val_loss: 0.027702 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,652 [INFO] train: [Epoch 13/50] train=0.014177 | val=0.026176
+2025-05-22 21:25:53,655 [INFO] train: New best val_loss: 0.026176 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,695 [INFO] train: [Epoch 14/50] train=0.012913 | val=0.024864
+2025-05-22 21:25:53,697 [INFO] train: New best val_loss: 0.024864 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,738 [INFO] train: [Epoch 15/50] train=0.011794 | val=0.023666
+2025-05-22 21:25:53,742 [INFO] train: New best val_loss: 0.023666 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,784 [INFO] train: [Epoch 16/50] train=0.010915 | val=0.022518
+2025-05-22 21:25:53,787 [INFO] train: New best val_loss: 0.022518 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,827 [INFO] train: [Epoch 17/50] train=0.010147 | val=0.021706
+2025-05-22 21:25:53,829 [INFO] train: New best val_loss: 0.021706 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,868 [INFO] train: [Epoch 18/50] train=0.009480 | val=0.020912
+2025-05-22 21:25:53,871 [INFO] train: New best val_loss: 0.020912 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,911 [INFO] train: [Epoch 19/50] train=0.008917 | val=0.020208
+2025-05-22 21:25:53,914 [INFO] train: New best val_loss: 0.020208 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,953 [INFO] train: [Epoch 20/50] train=0.008375 | val=0.019554
+2025-05-22 21:25:53,955 [INFO] train: New best val_loss: 0.019554 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:53,997 [INFO] train: [Epoch 21/50] train=0.007941 | val=0.019015
+2025-05-22 21:25:54,000 [INFO] train: New best val_loss: 0.019015 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,041 [INFO] train: [Epoch 22/50] train=0.007503 | val=0.018484
+2025-05-22 21:25:54,045 [INFO] train: New best val_loss: 0.018484 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,086 [INFO] train: [Epoch 23/50] train=0.007118 | val=0.017981
+2025-05-22 21:25:54,089 [INFO] train: New best val_loss: 0.017981 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,130 [INFO] train: [Epoch 24/50] train=0.006826 | val=0.017546
+2025-05-22 21:25:54,133 [INFO] train: New best val_loss: 0.017546 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,172 [INFO] train: [Epoch 25/50] train=0.006520 | val=0.017189
+2025-05-22 21:25:54,175 [INFO] train: New best val_loss: 0.017189 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,217 [INFO] train: [Epoch 26/50] train=0.006273 | val=0.016833
+2025-05-22 21:25:54,220 [INFO] train: New best val_loss: 0.016833 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,262 [INFO] train: [Epoch 27/50] train=0.006022 | val=0.016424
+2025-05-22 21:25:54,264 [INFO] train: New best val_loss: 0.016424 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,307 [INFO] train: [Epoch 28/50] train=0.005807 | val=0.016164
+2025-05-22 21:25:54,309 [INFO] train: New best val_loss: 0.016164 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,352 [INFO] train: [Epoch 29/50] train=0.005605 | val=0.015944
+2025-05-22 21:25:54,355 [INFO] train: New best val_loss: 0.015944 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,397 [INFO] train: [Epoch 30/50] train=0.005420 | val=0.015590
+2025-05-22 21:25:54,400 [INFO] train: New best val_loss: 0.015590 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,444 [INFO] train: [Epoch 31/50] train=0.005244 | val=0.015307
+2025-05-22 21:25:54,446 [INFO] train: New best val_loss: 0.015307 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,487 [INFO] train: [Epoch 32/50] train=0.005097 | val=0.015070
+2025-05-22 21:25:54,490 [INFO] train: New best val_loss: 0.015070 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,532 [INFO] train: [Epoch 33/50] train=0.004973 | val=0.014845
+2025-05-22 21:25:54,535 [INFO] train: New best val_loss: 0.014845 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,575 [INFO] train: [Epoch 34/50] train=0.004818 | val=0.014600
+2025-05-22 21:25:54,579 [INFO] train: New best val_loss: 0.014600 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,617 [INFO] train: [Epoch 35/50] train=0.004711 | val=0.014448
+2025-05-22 21:25:54,620 [INFO] train: New best val_loss: 0.014448 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,661 [INFO] train: [Epoch 36/50] train=0.004584 | val=0.014220
+2025-05-22 21:25:54,664 [INFO] train: New best val_loss: 0.014220 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,706 [INFO] train: [Epoch 37/50] train=0.004486 | val=0.014107
+2025-05-22 21:25:54,709 [INFO] train: New best val_loss: 0.014107 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,751 [INFO] train: [Epoch 38/50] train=0.004376 | val=0.013878
+2025-05-22 21:25:54,753 [INFO] train: New best val_loss: 0.013878 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,796 [INFO] train: [Epoch 39/50] train=0.004291 | val=0.013738
+2025-05-22 21:25:54,799 [INFO] train: New best val_loss: 0.013738 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,841 [INFO] train: [Epoch 40/50] train=0.004208 | val=0.013572
+2025-05-22 21:25:54,845 [INFO] train: New best val_loss: 0.013572 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,880 [INFO] train: [Epoch 41/50] train=0.004135 | val=0.013458
+2025-05-22 21:25:54,883 [INFO] train: New best val_loss: 0.013458 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,919 [INFO] train: [Epoch 42/50] train=0.004070 | val=0.013264
+2025-05-22 21:25:54,921 [INFO] train: New best val_loss: 0.013264 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,956 [INFO] train: [Epoch 43/50] train=0.003997 | val=0.013163
+2025-05-22 21:25:54,959 [INFO] train: New best val_loss: 0.013163 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:54,994 [INFO] train: [Epoch 44/50] train=0.003937 | val=0.012936
+2025-05-22 21:25:54,998 [INFO] train: New best val_loss: 0.012936 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:55,033 [INFO] train: [Epoch 45/50] train=0.003874 | val=0.012889
+2025-05-22 21:25:55,067 [INFO] train: [Epoch 46/50] train=0.003809 | val=0.012784
+2025-05-22 21:25:55,070 [INFO] train: New best val_loss: 0.012784 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:55,103 [INFO] train: [Epoch 47/50] train=0.003749 | val=0.012658
+2025-05-22 21:25:55,106 [INFO] train: New best val_loss: 0.012658 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:55,140 [INFO] train: [Epoch 48/50] train=0.003693 | val=0.012542
+2025-05-22 21:25:55,143 [INFO] train: New best val_loss: 0.012542 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:55,177 [INFO] train: [Epoch 49/50] train=0.003655 | val=0.012522
+2025-05-22 21:25:55,213 [INFO] train: [Epoch 50/50] train=0.003612 | val=0.012359
+2025-05-22 21:25:55,216 [INFO] train: New best val_loss: 0.012359 → checkpoint ./models/checkpoints/vae_text.pth
+2025-05-22 21:25:55,216 [INFO] main: [DONE] Best val_loss = 0.012359
+2025-05-22 21:25:55,216 [INFO] main: 
+
