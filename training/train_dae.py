@@ -120,7 +120,7 @@ if __name__ == "__main__":
     train_cfg = cfg.get("training", {})
     model_cfg = cfg.get("models", {}).get("dae", {})
 
-    set_seed(train_cfg.get("seed", 42))
+    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False))
     device = resolve_device(train_cfg.get("device"))
 
     # Garantizar embeddings UDA

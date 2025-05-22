@@ -40,14 +40,15 @@ training:
   learning_rate: 1e-3
   seed: 42
   device: "cuda"  # "cpu"
+  deterministic: false      # (true = modo debug)
 
 retrieval:
-  similarity_metric: "cosine"   # opciones: cosine, mahalanobis
+  similarity_metric: "cosine"   # cosine, mahalanobis
   top_k: 20
-  compress_embeddings: true  # usar embeddings comprimidos
+  compress_embeddings: true 
 
 generation:
-  provider: "openai"       # openai, anthropic, etc.
+  provider: "openai"       # Just OpenAI by now
   model: "gpt-4o-mini"
   temperature: 0.3
   max_tokens: 256
@@ -55,7 +56,7 @@ generation:
 
 
 evaluation:
-  retrieval_metrics: ["Recall@5", "MRR@10", "nDCG@10"]
+  retrieval_metrics: ["Recall@5", "MRR@10", "nDCG@10"] # You can change the k top  simply by changing the @k e.j Recall@10, "MRR@20"
   generation_metrics: ["ROUGE-L", "BLEU", "METEOR"]
 
 logging:
