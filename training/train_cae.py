@@ -52,7 +52,7 @@ def train_cae(
 
     # ---------------- Model & Optimizer -----------------
     model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
+    optim = torch.optim.Adam(model.parameters(), lr= 1e-3) # ARREGLAR **************************************************************
 
     best_val = float("inf")
     no_improve = 0
@@ -117,7 +117,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Contrastive Auto‑Encoder (CAE)")
     parser.add_argument("--config", default="./config/config.yaml", help="Ruta YAML de configuración")
     parser.add_argument("--epochs", type=int)
-    parser.add_argument("--lr", type=float)
+    parser.add_argument("--lr", type=float)    
     parser.add_argument("--save_path")
     parser.add_argument("--batch_size", type=int)
     parser.add_argument("--val_split", type=float, default=0.1, help="Proporción para validación")
@@ -125,6 +125,9 @@ if __name__ == "__main__":
     parser.add_argument("--no-hard-negatives", action="store_true")
     parser.add_argument("--margin", type=float, default=0.2)
     args = parser.parse_args()
+
+    # print(args.lr.dtype)
+
 
     # ---------------- Config ---------------------------
     cfg = load_config(args.config)
@@ -149,7 +152,7 @@ if __name__ == "__main__":
         hidden_dim=model_cfg.get("hidden_dim", 512),
         batch_size=args.batch_size or train_cfg.get("batch_size", 256),
         epochs=args.epochs or train_cfg.get("epochs", 20),
-        lr=args.lr or train_cfg.get("learning_rate", 1e-3),
+        lr= args.lr or train_cfg.get("learning_rate", 1e-3),
         model_save_path=args.save_path or model_cfg.get(
             "checkpoint", "./models/checkpoints/contrastive_ae.pth"
         ),

@@ -71,8 +71,9 @@ def contrastive_loss(
     if hard_negatives:
         dist_mat = torch.cdist(z_q, z_pos, p=2)
         mask = torch.eye(dist_mat.size(0), dtype=torch.bool, device=z_q.device)
-        dist_mat.masked_fill_(mask, float("inf"))
+        dist_mat = dist_mat.masked_fill(mask, float("inf"))  # ← corregido
         neg_dist, _ = dist_mat.min(dim=1)
+
     else:
         idx = torch.randperm(z_pos.size(0), device=z_pos.device)
         neg_dist = torch.norm(z_q - z_pos[idx], dim=1)

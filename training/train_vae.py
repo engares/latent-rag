@@ -46,7 +46,7 @@ def train_vae(
 
     # ---------------- Model & Optimizer -----------------
     model = VariationalAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
+    optim = torch.optim.Adam(model.parameters(), lr=1e-3) # ARREGLAR **************************************************************
 
     best_val = float("inf")
     no_improve = 0
