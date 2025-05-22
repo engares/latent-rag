@@ -1,14 +1,13 @@
-# training/train_cae.py – Contrastive Auto‑Encoder con hard‑negative mining y validación
+# training/train_cae.py – Contrastive Auto‑Encoder con hard‑negative mining y validación
 
 from __future__ import annotations
 
 import argparse
 import os
-import random
-from typing import Optional, Tuple
+from typing import Optional
 
 import torch
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 
 from data.torch_datasets import EmbeddingTripletDataset
 from models.contrastive_autoencoder import ContrastiveAutoencoder
@@ -16,12 +15,11 @@ from training.loss_functions import contrastive_loss
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
 from utils.data_utils import ensure_uda_data, split_dataset
+from utils.load_config import init_logger                 # NUEVO
 from dotenv import load_dotenv
 
-
-
 ###############################################################################
-#  ENTRENAMIENTO                                                               #
+#  ENTRENAMIENTO                                                              #
 ###############################################################################
 
 def train_cae(
@@ -33,6 +31,7 @@ def train_cae(
     epochs: int,
     lr: float,
     model_save_path: str,
+    logger,
     hard_negatives: bool = True,
     val_split: float = 0.1,
     patience: Optional[int] = 5,
@@ -40,9 +39,10 @@ def train_cae(
     device: Optional[str] = None,
 ):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(
-        f"[INFO] Training Contrastive AE on {device} | hard_negatives={hard_negatives} | val_split={val_split}"
-    )
+    print(f"[INFO] Training Contrastive AE on {device} | hard_negatives={hard_negatives} | val_split={val_split}")
+    logger.main.info("")
+    logger.main.info("Training CAE | device=%s | deterministic=%s | hard_negatives=%s",
+                     device, train_cfg["deterministic"], hard_negatives)
 
     # ---------------- Dataset ---------------------------
     full_ds = EmbeddingTripletDataset(dataset_path)
@@ -88,24 +88,27 @@ def train_cae(
                 val_running += vloss.item() * q.size(0)
             val_loss = val_running / len(val_ds)
 
-        print(
-            f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}"
-        )
+        print(f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}")
+        logger.train.info("[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss)
 
         # ---------------- Early stopping ---------------
-        if val_loss < best_val - 1e-4:  # pequeña tolerancia
+        if val_loss < best_val - 1e-4:
             best_val = val_loss
             no_improve = 0
             os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
             torch.save(model.state_dict(), model_save_path)
             print(f"  -> Nueva mejor val_loss. Checkpoint guardado en {model_save_path}")
+            logger.train.info("New best val_loss: %.6f → checkpoint %s", best_val, model_save_path)
         else:
             no_improve += 1
             if patience and no_improve >= patience:
                 print("[EARLY STOP] Sin mejora en validación.")
+                logger.train.info("[EARLY STOP] No improvement in validation.")
                 break
 
     print(f"[DONE] Mejor val_loss = {best_val:.6f}")
+    logger.main.info("[DONE] Best val_loss = %.6f", best_val)
+    logger.main.info("")
 
 ###############################################################################
 #  CLI                                                                        #
@@ -126,15 +129,14 @@ if __name__ == "__main__":
     parser.add_argument("--margin", type=float, default=0.2)
     args = parser.parse_args()
 
-    # print(args.lr.dtype)
-
-
-    # ---------------- Config ---------------------------
+    # ---------------- Config & logging -----------------
     cfg = load_config(args.config)
     train_cfg = cfg.get("training", {})
     model_cfg = cfg.get("models", {}).get("contrastive", {})
+    log = init_logger(cfg["logging"])
 
-    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False))
+    # ---------------- Reproducibilidad -----------------
+    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False), logger=log.train)
     device = resolve_device(train_cfg.get("device"))
 
     # ---------------- Embeddings UDA -------------------
@@ -152,13 +154,12 @@ if __name__ == "__main__":
         hidden_dim=model_cfg.get("hidden_dim", 512),
         batch_size=args.batch_size or train_cfg.get("batch_size", 256),
         epochs=args.epochs or train_cfg.get("epochs", 20),
-        lr = args.lr if args.lr is not None else float(train_cfg.get("learning_rate", 1e-3)),
-        model_save_path=args.save_path or model_cfg.get(
-            "checkpoint", "./models/checkpoints/contrastive_ae.pth"
-        ),
+        lr=args.lr if args.lr is not None else float(train_cfg.get("learning_rate", 1e-3)),
+        model_save_path=args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/contrastive_ae.pth"),
         hard_negatives=not args.no_hard_negatives,
         val_split=args.val_split,
         patience=None if args.patience == 0 else args.patience,
         margin=args.margin,
         device=device,
+        logger=log
     )

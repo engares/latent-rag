@@ -39,11 +39,15 @@ def main():
     parser.add_argument("--ae-type", choices=["none", "vae"], default="vae")
     args = parser.parse_args()
 
+
     # Config & env
     load_dotenv()
     cfg = load_config(args.config)
     device = resolve_device(cfg.get("training", {}).get("device"))
-    set_seed(cfg.get("training", {}).get("seed", 42))
+    set_seed(cfg.get("training", {}).get("seed", 42), cfg.get("training", {}).get("deterministic", False))
+
+    
+
 
     # Components ------------------------------------------------------------
     ae = load_autoencoder(cfg["models"], args.ae_type, device)
