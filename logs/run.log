@@ -393,3 +393,43 @@ Training VAE | device=cuda | deterministic=False
 2025-05-25 00:00:37,695 [INFO] train: [EARLY STOP] No improvement in validation.
 2025-05-25 00:00:37,695 [INFO] main: [DONE] Best val_loss = 0.001077
 2025-05-25 00:00:37,695 [INFO] main: 
+2025-05-25 00:50:15,260 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 00:50:24,458 [INFO] sentence_transformers.SentenceTransformer: Use pytorch device_name: cuda:0
+2025-05-25 00:50:24,458 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 00:52:15,617 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 00:52:15,617 [INFO] main: 
+2025-05-25 00:52:15,617 [INFO] main: Training DAE | device=cuda
+2025-05-25 00:52:17,260 [INFO] train: [Epoch 01/50] train=0.001563 | val=0.001238
+2025-05-25 00:52:17,266 [INFO] train: New best val_loss: 0.001238 → checkpoint ./models/checkpoints/dae_text.pth
+2025-05-25 00:52:17,853 [INFO] train: [Epoch 02/50] train=0.001168 | val=0.001139
+2025-05-25 00:52:18,470 [INFO] train: [Epoch 03/50] train=0.001096 | val=0.001096
+2025-05-25 00:52:18,473 [INFO] train: New best val_loss: 0.001096 → checkpoint ./models/checkpoints/dae_text.pth
+2025-05-25 00:52:19,096 [INFO] train: [Epoch 04/50] train=0.001055 | val=0.001075
+2025-05-25 00:52:19,691 [INFO] train: [Epoch 05/50] train=0.001027 | val=0.001055
+2025-05-25 00:52:20,289 [INFO] train: [Epoch 06/50] train=0.001006 | val=0.001042
+2025-05-25 00:52:20,886 [INFO] train: [Epoch 07/50] train=0.000988 | val=0.001034
+2025-05-25 00:52:21,482 [INFO] train: [Epoch 08/50] train=0.000975 | val=0.001027
+2025-05-25 00:52:21,482 [INFO] train: [EARLY STOP] No improvement in validation.
+2025-05-25 00:52:21,482 [INFO] main: [DONE] Best val_loss = 0.001096
+2025-05-25 00:52:21,482 [INFO] main: 
+2025-05-25 00:52:35,427 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 00:52:37,169 [INFO] train: [Epoch 01/50] train=0.076963 | val=0.068621
+2025-05-25 00:52:37,173 [INFO] train: New best val_loss → checkpoint ./models/checkpoints/contrastive_ae.pth
+2025-05-25 00:52:37,767 [INFO] train: [Epoch 02/50] train=0.053992 | val=0.064117
+2025-05-25 00:52:37,770 [INFO] train: New best val_loss → checkpoint ./models/checkpoints/contrastive_ae.pth
+2025-05-25 00:52:38,377 [INFO] train: [Epoch 03/50] train=0.045949 | val=0.061449
+2025-05-25 00:52:38,380 [INFO] train: New best val_loss → checkpoint ./models/checkpoints/contrastive_ae.pth
+2025-05-25 00:52:38,990 [INFO] train: [Epoch 04/50] train=0.039930 | val=0.060312
+2025-05-25 00:52:38,993 [INFO] train: New best val_loss → checkpoint ./models/checkpoints/contrastive_ae.pth
+2025-05-25 00:52:39,611 [INFO] train: [Epoch 05/50] train=0.037128 | val=0.060090
+2025-05-25 00:52:39,613 [INFO] train: New best val_loss → checkpoint ./models/checkpoints/contrastive_ae.pth
+2025-05-25 00:52:38,985 [INFO] train: [Epoch 06/50] train=0.032374 | val=0.060443
+2025-05-25 00:52:39,583 [INFO] train: [Epoch 07/50] train=0.030505 | val=0.059725
+2025-05-25 00:52:39,586 [INFO] train: New best val_loss → checkpoint ./models/checkpoints/contrastive_ae.pth
+2025-05-25 00:52:40,182 [INFO] train: [Epoch 08/50] train=0.027741 | val=0.060282
+2025-05-25 00:52:40,763 [INFO] train: [Epoch 09/50] train=0.025990 | val=0.060161
+2025-05-25 00:52:41,330 [INFO] train: [Epoch 10/50] train=0.023635 | val=0.061478
+2025-05-25 00:52:42,051 [INFO] train: [Epoch 11/50] train=0.021926 | val=0.062476
+2025-05-25 00:52:42,677 [INFO] train: [Epoch 12/50] train=0.021708 | val=0.062522
+2025-05-25 00:52:42,677 [INFO] train: [EARLY STOP] No improvement in validation.
+2025-05-25 00:52:42,677 [INFO] main: [DONE] Best val_loss = 0.059725

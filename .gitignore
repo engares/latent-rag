@@ -1,6 +1,9 @@
 # Ignore Python byte-code
 __pycache__/
 *.py[cod]
-+.env/
+
+# Ignore virtual environment directories
+.env
+.env/
 
 
