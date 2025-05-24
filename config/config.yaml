@@ -33,6 +33,11 @@ models:
     dataset_path: "./data/uda_contrastive_embeddings.pt"  
     checkpoint: "./models/checkpoints/contrastive_ae.pth"
 
+data:
+  dataset: "squad"            #  "uda"  |  "squad"
+  version: "v1"          #  v1, v2  ONly for squad
+  max_samples: 25000        #  optional, NNone to use all samples
+  include_unanswerable: false   #  Only Squad
 
 training:
   batch_size: 128

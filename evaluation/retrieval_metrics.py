@@ -1,65 +1,96 @@
+# evaluation/retrieval_metrics.py
+
+from __future__ import annotations
+
 import numpy as np
-from typing import List, Union, Dict
-import yaml
-import os
+from typing import List, Sequence, Dict, Tuple, Union
+              
+ID = Union[int, str]
 
-DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
+###############################################################################
+#  Métricas elementales (1 consulta)
+###############################################################################
 
-def load_config(path: str = DEFAULT_CONFIG_PATH) -> Dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-config = load_config()
-
-def recall_at_k(retrieved: List[Union[str, int]], relevant: List[Union[str, int]], k: int) -> float:
+def recall_at_k(retrieved: Sequence[ID], relevant: Sequence[ID], k: int) -> float:
     if not relevant:
         return 0.0
-    retrieved_k = retrieved[:k]
-    hits = len(set(retrieved_k) & set(relevant))
-    return hits / len(relevant)
+    return len(set(retrieved[:k]) & set(relevant)) / len(relevant)
 
-def mrr(retrieved: List[Union[str, int]], relevant: List[Union[str, int]]) -> float:
-    for idx, doc_id in enumerate(retrieved, start=1):
-        if doc_id in relevant:
-            return 1.0 / idx
+def mrr(retrieved: Sequence[ID], relevant: Sequence[ID]) -> float:
+    for i, d in enumerate(retrieved, 1):
+        if d in relevant:
+            return 1.0 / i
     return 0.0
 
-def ndcg_at_k(retrieved: List[Union[str, int]], relevant: List[Union[str, int]], k: int) -> float:
-    retrieved_k = retrieved[:k]
+def ndcg_at_k(retrieved: Sequence[ID], relevant: Sequence[ID], k: int) -> float:
     dcg = sum(
-        1.0 / np.log2(i + 2) if doc in relevant else 0.0 
-        for i, doc in enumerate(retrieved_k)
+        1.0 / np.log2(i + 2) if d in relevant else 0.0
+        for i, d in enumerate(retrieved[:k])
     )
-    ideal_dcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(relevant), k)))
-    return dcg / ideal_dcg if ideal_dcg > 0 else 0.0
+    idcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(relevant), k)))
+    return dcg / idcg if idcg else 0.0
 
-def evaluate_retrieval(
-    retrieved: List[Union[str, int]], 
-    relevant: List[Union[str, int]], 
-    metrics: List[str] = None
-) -> Dict[str, float]:
+###############################################################################
+#  Vectorización sobre lotes
+###############################################################################
 
-    if metrics is None:
-        metrics = config.get("evaluation", {}).get("retrieval_metrics", [])
+def _parse_metric(m: str) -> Tuple[str, int | None]:
+    return (m.split("@")[0], int(m.split("@")[1])) if "@" in m else (m, None)
 
-    results = {}
-    for metric in metrics:
-        if "@" in metric:
-            name, k_str = metric.split("@")
-            k = int(k_str)
-        else:
-            name = metric
-            k = None
+def _score_single(
+    retrieved: Sequence[ID],
+    relevant: Sequence[ID],
+    name: str,
+    k: int | None,
+) -> float:
+    name = name.lower()
+    if name == "recall" and k is not None:
+        return recall_at_k(retrieved, relevant, k)
+    if name == "mrr":
+        return mrr(retrieved[: (k or len(retrieved))], relevant)
+    if name == "ndcg" and k is not None:
+        return ndcg_at_k(retrieved, relevant, k)
+    raise ValueError(f"Métrica '{name}' mal especificada.")
 
-        name_lower = name.lower()
-        if name_lower == "recall" and k is not None:
-            results[f"Recall@{k}"] = recall_at_k(retrieved, relevant, k)
-        elif name_lower == "mrr":
-            cutoff = k if k else len(retrieved)
-            results[f"MRR@{cutoff}"] = mrr(retrieved[:cutoff], relevant)
-        elif name_lower == "ndcg" and k is not None:
-            results[f"nDCG@{k}"] = ndcg_at_k(retrieved, relevant, k)
-        else:
-            raise ValueError(f"Unknown metric: {metric}")
+def evaluate_retrieval(retrieved_batch: List[Sequence[ID]] | Sequence[ID],
+    relevant_batch: List[Sequence[ID]] | Sequence[ID],
+    metrics: List[str] | None = None,
+    *,
+    return_per_query: bool = False,
+) -> Dict[str, Dict[str, float]] | Tuple[Dict[str, Dict[str, float]],
+                                         List[Dict[str, float]]]:
+    
+    # ── Normalizar entrada a lote ──────────────────────────────────────────
+    single = isinstance(retrieved_batch[0], (str, int))  # type: ignore[index]
+    if single:
+        retrieved_batch = [retrieved_batch]              # type: ignore[assignment]
+        relevant_batch  = [relevant_batch]               # type: ignore[assignment]
 
-    return results
+    assert len(retrieved_batch) == len(relevant_batch), \
+        "retrieved_batch y relevant_batch deben tener la misma longitud."
+
+    if not metrics:
+        raise ValueError("No se especificaron métricas de evaluación.")
+
+    Q = len(retrieved_batch)
+    per_query: List[Dict[str, float]] = [{} for _ in range(Q)]
+    summary: Dict[str, Dict[str, float]] = {}
+
+    for m in metrics:
+        name, k = _parse_metric(m)
+        vals = [
+            _score_single(r, rel, name, k)
+            for r, rel in zip(retrieved_batch, relevant_batch)
+        ]
+        summary[m] = {
+            "mean": float(np.mean(vals)),
+            "std":  float(np.std(vals, ddof=1)) if Q > 1 else 0.0,
+        }
+        for d, v in zip(per_query, vals):
+            d[m] = v
+
+    if return_per_query:
+        return summary, per_query
+    if single:
+        return {k: v["mean"] for k, v in summary.items()}      # compat.
+    return summary
