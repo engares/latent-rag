@@ -36,7 +36,7 @@ models:
 data:
   dataset: "squad"            #  "uda"  |  "squad"
   version: "v1"          #  v1, v2  ONly for squad
-  max_samples: 25000        #  optional, NNone to use all samples
+  max_samples: None        #  optional, NNone to use all samples
   include_unanswerable: false   #  Only Squad
 
 training:

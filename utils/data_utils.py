@@ -210,7 +210,7 @@ def ensure_squad_data(
     print(f"[INFO] Loading SBERT '{base_model_name}' …")
     st_model = SentenceTransformer(base_model_name)
 
-    print("[INFO] Encoding positive contexts …")
+    print("[INFO] Encoding queries + positive contexts …")
     target_emb = _compute_embeddings(clean_texts, st_model)   # shape [N × D]
 
     # --------------------------------------------------------------------- #
