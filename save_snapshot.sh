@@ -32,7 +32,7 @@ fi
 : > "$OUTPUT_TXT"
 
 printf '### Directory tree for: %s\n\n' "$TARGET_DIR" >> "$OUTPUT_TXT"
-tree -F "$TARGET_DIR" >> "$OUTPUT_TXT" || {
+tree -F -I '__pycache__' "$TARGET_DIR" >> "$OUTPUT_TXT" || {
   printf 'Warning: Unable to generate tree for "%s".\n' "$TARGET_DIR" >&2; }
 
 printf '\n\n### File contents\n\n' >> "$OUTPUT_TXT"
@@ -43,8 +43,12 @@ printf '\n\n### File contents\n\n' >> "$OUTPUT_TXT"
 # Absolute path to output for comparison
 ABS_OUTPUT="$(realpath "$OUTPUT_TXT")"
 
-# Exclude hidden files and files inside hidden directories
-find "$TARGET_DIR" -type f ! -path '*/.*/*' ! -name '.*' -print0 | sort -z |
+# Exclude hidden files, __pycache__, and specific extensions
+find "$TARGET_DIR" -type f \
+  ! -path '*/.*/*' \
+  ! -name '.*' \
+  ! -path '*/__pycache__/*' \
+  -print0 | sort -z |
 while IFS= read -r -d '' FILE
 do
   # Resolve absolute path of the file
@@ -54,6 +58,13 @@ do
   if [[ "$ABS_FILE" == "$ABS_OUTPUT" ]]; then
     continue
   fi
+
+  # Skip files with undesired extensions
+  case "$FILE" in
+    *.pt|*.pth|*.ipynb|*.log)
+      continue
+      ;;
+  esac
 
   # Remove leading base path for relative display
   REL_PATH="${FILE#$TARGET_DIR/}"
@@ -71,4 +82,5 @@ do
   # Footer
   printf '\n"""\n\n' >> "$OUTPUT_TXT"
 done
+
 printf 'Snapshot saved to: %s\n' "$OUTPUT_TXT"

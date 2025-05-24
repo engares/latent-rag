@@ -14,15 +14,16 @@ from models.denoising_autoencoder import DenoisingAutoencoder
 from training.loss_functions import dae_loss
 from utils.load_config import load_config
 from utils.training_utils import set_seed, resolve_device
-from utils.data_utils import ensure_uda_data, split_dataset
-from utils.load_config import init_logger               # NUEVO
+from utils.data_utils import split_dataset, prepare_datasets
+from utils.load_config import init_logger
 from dotenv import load_dotenv
 
 ###############################################################################
-#  ENTRENAMIENTO                                                              #
+#  TRAINING FUNCTION                                                          #
 ###############################################################################
 
 def train_dae(
+    *,
     dataset_path: str,
     input_dim: int,
     latent_dim: int,
@@ -36,10 +37,11 @@ def train_dae(
     patience: Optional[int] = 5,
     device: Optional[str] = None,
 ):
+    """Run DAE training/validation loop."""
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Training DAE on {device} | val_split={val_split}")
     logger.main.info("")
-    logger.main.info("Training DAE | device=%s | deterministic=%s", device, train_cfg["deterministic"])
+    logger.main.info("Training DAE | device=%s", device)
 
     # ---------------- Dataset --------------------------
     full_ds = EmbeddingDAEDataset(dataset_path)
@@ -83,8 +85,12 @@ def train_dae(
                 val_running += vloss.item() * x_noisy.size(0)
             val_loss = val_running / len(val_ds)
 
-        print(f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}")
-        logger.train.info("[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss)
+        print(
+            f"[Epoch {epoch:02d}/{epochs}] train_loss={train_loss:.6f} | val_loss={val_loss:.6f}"
+        )
+        logger.train.info(
+            "[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss
+        )
 
         # ---------------- Early Stopping --------------
         if val_loss < best_val - 1e-4:
@@ -92,7 +98,7 @@ def train_dae(
             no_improve = 0
             os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
             torch.save(model.state_dict(), model_save_path)
-            print(f"  -> Checkpoint saved in {model_save_path}")
+            print(f"  -> New best val_loss. Checkpoint saved at {model_save_path}")
             logger.train.info("New best val_loss: %.6f → checkpoint %s", best_val, model_save_path)
         else:
             no_improve += 1
@@ -101,7 +107,7 @@ def train_dae(
                 logger.train.info("[EARLY STOP] No improvement in validation.")
                 break
 
-    print(f"[DONE] Mejor val_loss = {best_val:.6f}")
+    print(f"[DONE] Best val_loss = {best_val:.6f}")
     logger.main.info("[DONE] Best val_loss = %.6f", best_val)
     logger.main.info("")
 
@@ -114,6 +120,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train Denoising Auto‑Encoder (DAE)")
     parser.add_argument("--config", default="./config/config.yaml")
+    parser.add_argument("--dataset", choices=["uda", "squad"], help="Override YAML dataset")
     parser.add_argument("--epochs", type=int)
     parser.add_argument("--lr", type=float)
     parser.add_argument("--save_path")
@@ -128,29 +135,25 @@ if __name__ == "__main__":
     model_cfg = cfg.get("models", {}).get("dae", {})
     log = init_logger(cfg["logging"])
 
-    # ---------------- Reproducibilidad ----------------
+    # ---------------- Reproducibility ----------------
     set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False), logger=log.train)
     device = resolve_device(train_cfg.get("device"))
 
-    # ---------------- Embeddings -----------------------
-    ensure_uda_data(
-        output_dir="./data",
-        max_samples=train_cfg.get("max_samples"),
-        base_model_name=cfg.get("embedding_model", {})["name"],
-    )
+    # ---------------- Dataset prep -------------------
+    dataset_path = prepare_datasets(cfg, variant="dae", dataset_override=args.dataset)
 
-    # ---------------- Entrenamiento -------------------
+    # ---------------- Training -----------------------
     train_dae(
-        dataset_path=model_cfg.get("dataset_path", "./data/uda_dae_embeddings.pt"),
+        dataset_path=dataset_path,
         input_dim=model_cfg.get("input_dim", 384),
         latent_dim=model_cfg.get("latent_dim", 64),
         hidden_dim=model_cfg.get("hidden_dim", 512),
         batch_size=args.batch_size or train_cfg.get("batch_size", 256),
         epochs=args.epochs or train_cfg.get("epochs", 20),
-        lr = args.lr if args.lr is not None else float(train_cfg.get("learning_rate", 1e-3)),
+        lr=args.lr if args.lr is not None else float(train_cfg.get("learning_rate", 1e-3)),
         model_save_path=args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/dae_text.pth"),
         val_split=args.val_split,
         patience=None if args.patience == 0 else args.patience,
         device=device,
-        logger=log
+        logger=log,
     )

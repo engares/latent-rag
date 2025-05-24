@@ -73,9 +73,9 @@ class EmbeddingTripletDataset(Dataset):
     """
     def __init__(self, path: str):
         data = torch.load(path, map_location="cpu")
-        self.q  = data["query"    ].float()
-        self.p  = data["positive" ].float()
-        self.n  = data["negative" ].float()
+        self.q  = data["query"].float()
+        self.p  = data["positive"].float()
+        self.n  = data["negative"].float()
         assert self.q.shape == self.p.shape == self.n.shape, "Dimensiones incompatibles"
 
     def __len__(self) -> int:          return self.q.size(0)
@@ -88,9 +88,9 @@ class EmbeddingTripletDataset(Dataset):
 
 # ---------- PRUEBA RÁPIDA -----------------------------------------------------
 if __name__ == "__main__":
-    dae_ds = EmbeddingDAEDataset("./data/uda_dae_embeddings.pt")
-    vae_ds = EmbeddingDAEDataset("./data/uda_vae_embeddings.pt")
-    con_ds = EmbeddingTripletDataset("./data/uda_contrastive_embeddings.pt")
+    dae_ds = EmbeddingDAEDataset("./data/squad_dae_embeddings.pt")
+    vae_ds = EmbeddingDAEDataset("./data/squad_vae_embeddings.pt")
+    con_ds = EmbeddingTripletDataset("./data/squad_contrastive_embeddings.pt")
 
     print("DAE sample ⇒", {k: v.shape for k, v in dae_ds[0].items()})
     print("Contrastive sample ⇒", {k: v.shape for k, v in con_ds[0].items()})
