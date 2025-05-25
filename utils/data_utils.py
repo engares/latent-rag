@@ -36,7 +36,7 @@ def _jaccard_sim(a: str, b: str) -> float:
 
 def ensure_uda_data(
     *,
-    output_dir: str = "./data",
+    output_dir: str = "./data/",
     max_samples: Optional[int] = None,
     base_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
     noise_std: float = 0.05,
@@ -246,23 +246,23 @@ def ensure_squad_data(
 
 def _prepare_uda(cfg: dict) -> Dict[str, str]:
     common = dict(
-        output_dir="./data",
+        output_dir="./data/UDA",
         max_samples=cfg["data"].get("max_samples"),
         base_model_name=cfg["embedding_model"]["name"],
         force=False,
     )
     ensure_uda_data(**common)
     return {
-        "vae": "./data/uda_vae_embeddings.pt",
-        "dae": "./data/uda_dae_embeddings.pt",
-        "cae": "./data/uda_contrastive_embeddings.pt",
+        "vae": "./data/UDA/uda_vae_embeddings.pt",
+        "dae": "./data/UDA/uda_dae_embeddings.pt",
+        "cae": "./data/UDA/uda_contrastive_embeddings.pt",
     }
 
 
 def _prepare_squad(cfg: dict) -> Dict[str, str]:
     data_cfg = cfg["data"]
     common = dict(
-        output_dir="./data",
+        output_dir="./data/SQUAD",
         max_samples=data_cfg.get("max_samples"),
         base_model_name=cfg["embedding_model"]["name"],
         noise_std=0.05,
@@ -271,9 +271,9 @@ def _prepare_squad(cfg: dict) -> Dict[str, str]:
     )
     ensure_squad_data(**common)
     return {
-        "vae": "./data/squad_vae_embeddings.pt",
-        "dae": "./data/squad_dae_embeddings.pt",
-        "cae": "./data/squad_contrastive_embeddings.pt",
+        "vae": "./data/SQUAD/squad_vae_embeddings.pt",
+        "dae": "./data/SQUAD/squad_dae_embeddings.pt",
+        "cae": "./data/SQUAD/squad_contrastive_embeddings.pt",
     }
 
 

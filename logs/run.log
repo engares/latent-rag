@@ -459,3 +459,22 @@ Training VAE | device=cuda | deterministic=False
 2025-05-25 11:34:41,850 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
 2025-05-25 11:34:57,611 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
 2025-05-25 11:35:48,664 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 12:43:29,997 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 12:43:43,773 [INFO] sentence_transformers.SentenceTransformer: Use pytorch device_name: cuda:0
+2025-05-25 12:43:43,773 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 12:49:43,745 [INFO] main: 
+2025-05-25 12:49:43,745 [INFO] main: Training DAE | device=cuda
+2025-05-25 12:49:46,747 [INFO] train: [Epoch 01/50] train=0.001363 | val=0.001193
+2025-05-25 12:49:46,762 [INFO] train: New best val_loss: 0.001193 → checkpoint ./models/checkpoints/dae_text.pth
+2025-05-25 12:49:49,404 [INFO] train: [Epoch 02/50] train=0.001149 | val=0.001129
+2025-05-25 12:49:52,077 [INFO] train: [Epoch 03/50] train=0.001103 | val=0.001101
+2025-05-25 12:49:54,538 [INFO] train: [Epoch 04/50] train=0.001078 | val=0.001087
+2025-05-25 12:49:54,541 [INFO] train: New best val_loss: 0.001087 → checkpoint ./models/checkpoints/dae_text.pth
+2025-05-25 12:49:57,086 [INFO] train: [Epoch 05/50] train=0.001062 | val=0.001072
+2025-05-25 12:49:59,539 [INFO] train: [Epoch 06/50] train=0.001051 | val=0.001065
+2025-05-25 12:50:01,948 [INFO] train: [Epoch 07/50] train=0.001043 | val=0.001057
+2025-05-25 12:50:04,336 [INFO] train: [Epoch 08/50] train=0.001037 | val=0.001055
+2025-05-25 12:50:06,754 [INFO] train: [Epoch 09/50] train=0.001031 | val=0.001054
+2025-05-25 12:50:06,755 [INFO] train: [EARLY STOP] No improvement in validation.
+2025-05-25 12:50:06,755 [INFO] main: [DONE] Best val_loss = 0.001087
+2025-05-25 12:50:06,755 [INFO] main: 
