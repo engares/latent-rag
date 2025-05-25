@@ -1,4 +1,3 @@
-
 # rag\_autoencoder\_tfm
 
 A repository for training and evaluating retrieval-augmented generation (RAG) pipelines enhanced by various autoencoder compression methods. Supported variants include:
@@ -89,7 +88,7 @@ System prompt for generation is located in **`config/prompts/system_prompt.txt`*
 Data tensors for SQuAD are generated automatically when running training or pipeline. To prepare manually:
 
 ```bash
-python -c "from utils.data_utils import ensure_squad_data; ensure_squad_data(output_dir='./data/SQUAD')"
+python -c "from utils.data_utils import ensure_squad_data; ensure_squad_data(output_dir='./data/SQUAD_DELETE')"
 ```
 
 This creates:
@@ -147,8 +146,14 @@ Replace `--ae_type` with `dae`, `contrastive`, `all` or `none`. The pipeline wil
 
 1. Encode corpus and queries
 2. Retrieve top‑k documents
-3. Generate answers via GPT-4o-mini
+3. Optionally generate answers via GPT-4o-mini (if `--generate` is specified)
 4. Evaluate retrieval and generation metrics
+
+To enable the generation step, include the `--generate` flag:
+
+```bash
+python main.py --config config/config.yaml --ae_type vae --generate
+```
 
 ## Evaluation
 
@@ -187,7 +192,7 @@ src/
 Run all tests via pytest:
 
 ```bash
-pytest -q
+PYTHONPATH=. pytest -q
 ```
 
 Coverage threshold: 80% (unit tests for data processing, models, retrieval, evaluation, training scripts).
