@@ -89,7 +89,7 @@ class EmbeddingTripletDataset(Dataset):
 # ---------- PRUEBA RÁPIDA -----------------------------------------------------
 if __name__ == "__main__":
     dae_ds = EmbeddingDAEDataset("./data/squad_dae_embeddings.pt")
-    vae_ds = EmbeddingDAEDataset("./data/squad_vae_embeddings.pt")
+    vae_ds = EmbeddingVAEDataset("./data/squad_vae_embeddings.pt")
     con_ds = EmbeddingTripletDataset("./data/squad_contrastive_embeddings.pt")
 
     print("DAE sample ⇒", {k: v.shape for k, v in dae_ds[0].items()})
