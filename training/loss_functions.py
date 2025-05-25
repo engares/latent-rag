@@ -8,33 +8,35 @@ import torch.nn.functional as F
 #  VAE                                                                        #
 ###############################################################################
 
+import torch
+import torch.nn.functional as F
+
 def vae_loss(
     x_reconstructed: torch.Tensor,
-    x: torch.Tensor,
+    x_target: torch.Tensor,
     mu: torch.Tensor,
     logvar: torch.Tensor,
-    reduction: str = "sum",
+    *,
+    mse_reduction: str = "mean",   # "mean" o "sum"
+    beta: float = 1.0,             # β-VAE (β=1 → VAE clásico)
 ) -> torch.Tensor:
-    """Pérdida estándar VAE = mse + KL.
+    """VAE loss = reconstruction + β·KL  (KL normalizado por batch).
 
-    Parámetros
-    ----------
-    x_reconstructed : Tensor
-        Salida del decodificador.
-    x : Tensor
-        Embedding original (target).
-    mu, logvar : Tensor
-        Parámetros de la distribución latente.
-    reduction : str
-        Reducción a emplear en MSE ("sum" o "mean").
+    Args:
+        x_reconstructed: output del decoder  ― shape [B, D]
+        x_target:        embeddings originales ― shape [B, D]
+        mu, logvar:      parámetros de la distribución latente ― shape [B, Z]
+        mse_reduction:   "mean" (recomendado) o "sum"
+        beta:            peso del término KL (β-VAE)
     """
-    # Reconstrucción (MSE)
-    recon_loss = F.mse_loss(x_reconstructed, x, reduction=reduction)
+    # ── 1. reconstruction error ─────────────────────────────────────────
+    recon = F.mse_loss(x_reconstructed, x_target, reduction=mse_reduction)
 
-    # Divergencia KL
-    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    # ── 2. KL (normalized) ───────────────────────────────────────────────
+    #   KL(q(z|x) || N(0,1))  =  -½ Σ_i (1 + logσ²_i − μ²_i − σ²_i)
+    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean()  # ← .mean() ≈ /B/Z
 
-    return recon_loss + kl_loss
+    return recon + beta * kl
 
 ###############################################################################
 #  DAE                                                                        #
