@@ -42,27 +42,3 @@ def build_contrastive_pairs(dataset, max_negatives=1) -> List[Dict]:
         for neg in negs:
             pairs.append({"query": q, "positive": pos, "negative": neg})
     return pairs
-
-def load_uda(split="train", max_samples=5000):
-    print("[INFO] Loading UDA benchmark dataset...")
-    uda = load_dataset("osunlp/uda", split=split)
-    return uda.select(range(min(max_samples, len(uda))))
-
-if __name__ == "__main__":
-    # Load base data
-    data = load_uda(split="train", max_samples=1000)
-    texts = [clean_text(p["text"]) for row in data for p in row["positive_passages"][:1]]
-
-    # Generate DAE data
-    dae_data = build_dae_dataset(texts)
-    with open("./data/uda_dae_train.jsonl", "w", encoding="utf-8") as f:
-        for item in dae_data:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
-
-    # Generate contrastive pairs
-    contrastive = build_contrastive_pairs(data, max_negatives=1)
-    with open("./data/uda_contrastive_train.jsonl", "w", encoding="utf-8") as f:
-        for item in contrastive:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
-
-    print("[INFO] Dataset files written to ./data/")
