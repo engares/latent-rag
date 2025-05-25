@@ -62,7 +62,7 @@ generation:
 
 evaluation:
   retrieval_metrics: ["Recall@5", "MRR@10", "nDCG@10"] # You can change the k top  simply by changing the @k e.j Recall@10, "MRR@20"
-  generation_metrics: ["ROUGE-L", "BLEU", "METEOR"]
+  generation_metrics: ["ROUGE-L", "BLEU"]
 
 logging:
   level: "INFO"

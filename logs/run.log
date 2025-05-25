@@ -478,3 +478,159 @@ Training VAE | device=cuda | deterministic=False
 2025-05-25 12:50:06,755 [INFO] train: [EARLY STOP] No improvement in validation.
 2025-05-25 12:50:06,755 [INFO] main: [DONE] Best val_loss = 0.001087
 2025-05-25 12:50:06,755 [INFO] main: 
+2025-05-25 17:09:39,759 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:09:52,194 [INFO] sentence_transformers.SentenceTransformer: Use pytorch device_name: cuda:0
+2025-05-25 17:09:52,194 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 17:26:07,968 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:35:54,434 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:35:59,535 [INFO] main: Device resolved → cuda
+2025-05-25 17:35:59,974 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 17:36:02,176 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 17:36:02,209 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 17:36:02,209 [INFO] main: Running pipeline: |queries|=200 |docs|=10
+2025-05-25 17:36:06,596 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:36:10,226 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:36:14,180 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:36:17,521 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:39:54,618 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:39:59,027 [INFO] main: Device resolved → cuda
+2025-05-25 17:39:59,481 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 17:40:01,685 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 17:40:01,718 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 17:40:01,718 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 17:40:06,485 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:40:10,069 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:43:42,186 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:43:46,874 [INFO] main: Device resolved → cuda
+2025-05-25 17:43:47,324 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 17:43:52,683 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 17:43:52,719 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 17:43:52,719 [INFO] main: Running pipeline: |queries|=30 |docs|=1
+2025-05-25 17:43:56,597 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:01,621 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:04,182 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:07,593 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:11,609 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:15,704 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:19,682 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:22,254 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:26,610 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:29,019 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:31,500 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:33,946 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:37,973 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:41,178 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:45,716 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:50,344 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:53,894 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:44:58,620 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:01,971 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:04,414 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:06,956 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:09,855 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:11,954 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:15,218 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:18,627 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:21,508 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:24,354 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:28,569 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:31,726 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:45:36,205 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:50:24,893 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:50:29,568 [INFO] main: Device resolved → cuda
+2025-05-25 17:50:29,961 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 17:50:32,034 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 17:50:32,069 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 17:50:32,069 [INFO] main: Running pipeline: |queries|=30 |docs|=1
+2025-05-25 17:50:38,375 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:50:41,768 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:50:45,618 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:50:49,164 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:50:52,716 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:50:58,149 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:01,898 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:03,847 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:08,516 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:11,286 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:13,927 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:17,743 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:21,705 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:25,877 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:31,969 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:35,531 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:39,160 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:44,640 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:50,418 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:54,394 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:51:57,443 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:01,212 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:03,386 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:07,262 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:11,690 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:14,989 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:18,673 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:21,644 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:27,519 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:52:30,612 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:56:42,984 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:56:47,768 [INFO] main: Device resolved → cuda
+2025-05-25 17:56:48,228 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 17:56:50,317 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 17:56:50,351 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 17:56:50,351 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 17:56:54,448 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:56:58,089 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:58:27,197 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 17:58:34,104 [INFO] main: Device resolved → cuda
+2025-05-25 17:58:34,498 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 17:58:36,421 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 17:58:36,446 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 17:58:36,446 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 17:58:40,379 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 17:58:43,927 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:00:03,456 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 18:00:08,618 [INFO] main: Device resolved → cuda
+2025-05-25 18:00:09,078 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 18:00:10,612 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 18:00:10,638 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 18:00:10,638 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 18:00:16,566 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:00:20,816 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:13:31,179 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 18:13:35,774 [INFO] main: Device resolved → cuda
+2025-05-25 18:13:36,183 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 18:13:38,230 [INFO] main: Compressor ready (AE = dae)
+2025-05-25 18:13:38,263 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 18:13:38,263 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 18:13:41,423 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:13:44,659 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:14:03,841 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 18:14:08,411 [INFO] main: Device resolved → cuda
+2025-05-25 18:14:08,411 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 18:14:11,097 [INFO] main: Compressor ready (AE = none)
+2025-05-25 18:14:11,120 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 18:14:11,120 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 18:14:14,845 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:14:19,239 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:14:31,636 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 18:14:36,209 [INFO] main: Device resolved → cuda
+2025-05-25 18:14:36,629 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 18:14:38,450 [INFO] main: Compressor ready (AE = vae)
+2025-05-25 18:14:38,474 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 18:14:38,474 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 18:14:42,139 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:14:45,034 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:14:45,037 [INFO] main: Device resolved → cuda
+2025-05-25 18:14:45,061 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 18:14:46,663 [INFO] main: Compressor ready (AE = dae)
+2025-05-25 18:14:46,676 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 18:14:46,676 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 18:14:50,060 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:14:53,533 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:14:53,541 [INFO] main: Device resolved → cuda
+2025-05-25 18:14:53,577 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 18:14:55,308 [INFO] main: Compressor ready (AE = contrastive)
+2025-05-25 18:14:55,321 [INFO] RAGGenerator: API Key OpenAI cargada correctamente.
+2025-05-25 18:14:55,321 [INFO] main: Running pipeline: |queries|=2 |docs|=1
+2025-05-25 18:14:59,688 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 18:15:03,566 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"

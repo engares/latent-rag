@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 from dotenv import load_dotenv
+from utils.data_utils import load_evaluation_data
 
 # Third‑party
 from rich import print as rprint
@@ -154,6 +155,7 @@ class PipelineRunner:  # noqa: D101 – simple orchestrator
         queries: Sequence[str],
         corpus: Sequence[str],
         relevant_docs: Optional[Sequence[str]] = None,
+        generate: bool = False,
     ) -> None:
         """Run encode → retrieve → generate → evaluate for *all* queries."""
 
@@ -167,9 +169,10 @@ class PipelineRunner:  # noqa: D101 – simple orchestrator
         for idx, (q, q_emb) in enumerate(zip(queries, query_embeddings)):
             docs_k, _ = _retrieve_documents(q_emb, doc_embeddings, corpus, self.retr_cfg)
             all_retrieved.append(docs_k)
-            ans = self.generator.generate(q, docs_k)
-            answers.append(ans)
-            self.logger.main.debug("[%d] Q: %s | A: %s", idx, q, ans[:60] + "…")
+            if generate:
+                ans = self.generator.generate(q, docs_k)
+                answers.append(ans)
+                self.logger.main.debug("[%d] Q: %s | A: %s", idx, q, ans[:60] + "…")
 
         # ----------------------------------------------------------------- EVAL
         eval_cfg = self.cfg.get("evaluation", {})
@@ -183,7 +186,7 @@ class PipelineRunner:  # noqa: D101 – simple orchestrator
             for k, v in ret_metrics.items():
                 rprint(f"{k}: {v['mean']:.4f} ± {v['std']:.4f}")
 
-        if relevant_docs and len(queries) >= 30:
+        if generate and relevant_docs and len(queries) >= 30: 
             # If the user provided refs with ≥30 samples we can bootstrap.
             gen_metrics = eval_generation(
                 references=list(relevant_docs),
@@ -214,6 +217,14 @@ def _parse_args() -> argparse.Namespace:  # noqa: D401
     parser.add_argument("--ae_type", default="vae", choices=valid_ae, help="Select auto‑encoder variant")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 
+    parser.add_argument("--dataset", choices=["squad", "uda"], default="squad",
+                    help="Dataset for evaluation (SQuAD or UDA)")
+    parser.add_argument("--max_samples", type=int, default=200,
+                        help="Maximum number of queries to use")
+    parser.add_argument("--benchmark", action="store_true",
+                        help="Compare against BM25, DPR, SBERT, AE...")
+    parser.add_argument("--generate", action="store_true", help="Run generation step (RAG)")
+
     return parser.parse_args()
 
 
@@ -236,25 +247,13 @@ def main() -> None:  # noqa: D401 – standard script
     )
 
     # --------------------------------------------------------------------- Toy corpus (replace with real dataset) --
-    corpus = [
-        "Paris is the capital of France.",
-        "The Pythagorean theorem applies to right‑angled triangles.",
-        "The Spanish Civil War began in 1936.",
-        "GPT is a language model developed by OpenAI.",
-        "Autoencoders allow nonlinear compression.",
-    ]
-    queries = [
-        "Which model does OpenAI use for text generation?",
-    ]
-    relevant = [
-        ["GPT is a language model developed by OpenAI."]
-    ]
+    queries, corpus, relevant = load_evaluation_data(args.dataset, max_samples=2) # args.max_samples
 
     # --------------------------------------------------------------------- Run each variant
     for ae in ae_variants:
         rprint(f"\n[bold cyan]==== PIPELINE ({ae.upper()}) ====\n[/]")
         runner = PipelineRunner(cfg, ae, log)
-        runner.process(queries, corpus, relevant_docs=relevant)
+        runner.process(queries, corpus, relevant_docs=relevant, generate=args.generate)
 
 
 if __name__ == "__main__":

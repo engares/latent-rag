@@ -24,14 +24,22 @@ _scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
 
 
 def compute_bleu(candidates: List[str], references: List[str]) -> float:
-    """BLEU corpus‐level sacreBLEU (0‑100)."""
+    """BLEU corpus‐level sacreBLEU (0‑100). Handles both flat and nested reference lists."""
+    # Flatten references if it's a list of lists (shouldn't be for single-ref BLEU)
+    if references and isinstance(references[0], list):
+        # If already nested, flatten one level
+        references = [ref for sublist in references for ref in (sublist if isinstance(sublist, list) else [sublist])]
     return _bleu.corpus_score(candidates, [references]).score
 
 
 def compute_rouge_l(candidates: List[str], references: List[str]) -> float:
     """Promedio de ROUGE‑L (F1) ×100."""
+    def to_str(x):
+        if isinstance(x, list):
+            return " ".join(map(str, x))
+        return str(x)
     scores = [
-        _scorer.score(ref, cand)["rougeL"].fmeasure * 100
+        _scorer.score(to_str(ref), to_str(cand))["rougeL"].fmeasure * 100
         for ref, cand in zip(references, candidates)
     ]
     return float(np.mean(scores))
@@ -84,14 +92,14 @@ def evaluate_generation_bootstrap(
     if metrics is None:
         metrics = ["BLEU", "ROUGE-L"]
 
-    assert len(references) == len(candidates) >= 30, (
+    assert len(references) == len(candidates) >= 30, ( 
         "Se requieren al menos 30 pares ref‑cand para un IC mínimo; se recomienda ≥1000."
     )
 
     results: Dict[str, Dict[str, float]] = {}
     for m in metrics:
         if m not in _metric_fn:
-            raise ValueError(f"Métrica '{m}' no soportada.")
+            raise ValueError(f"Non soported metric '{m}'")
         mean, lo, hi = _bootstrap_ci(_metric_fn[m], references, candidates, n_samples, alpha, seed)
         results[m] = {"mean": mean, "ci_lower": lo, "ci_upper": hi}
     return results

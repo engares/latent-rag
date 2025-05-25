@@ -17,10 +17,10 @@
 │   │   ├── uda_dae_embeddings.pt
 │   │   └── uda_vae_embeddings.pt
 │   ├── data_processing.py
-│   ├── squad_loader.py
 │   └── torch_datasets.py
 ├── evaluation/
 │   ├── autoencoder_metrics.py
+│   ├── benchmark.py
 │   ├── generation_metrics.py
 │   └── retrieval_metrics.py
 ├── generation/
@@ -36,10 +36,12 @@
 │   │   └── vae_text.pth
 │   ├── contrastive_autoencoder.py
 │   ├── denoising_autoencoder.py
-│   ├── tests.ipynb
 │   └── variational_autoencoder.py
 ├── requeriments.txt
 ├── retrieval/
+│   ├── base.py
+│   ├── bm25.py
+│   ├── dpr.py
 │   ├── embedder.py
 │   └── retriever.py
 ├── save_snapshot.sh*
@@ -52,6 +54,7 @@
 │   ├── test_models.py
 │   ├── test_retrieval.py
 │   └── test_train_scripts.py
+├── tests.ipynb
 ├── training/
 │   ├── loss_functions.py
 │   ├── train_cae.py
@@ -62,7 +65,7 @@
     ├── load_config.py
     └── training_utils.py
 
-14 directories, 46 files
+14 directories, 49 files
 
 
 ### File contents
@@ -80,6 +83,202 @@ AUTORAG.code-workspace
 """
 
 README.md
+"""
+
+# rag\_autoencoder\_tfm
+
+A repository for training and evaluating retrieval-augmented generation (RAG) pipelines enhanced by various autoencoder compression methods. Supported variants include:
+
+* Variational Autoencoder (VAE)
+* Denoising Autoencoder (DAE)
+* Contrastive Autoencoder (CAE)
+
+This framework covers from data preparation, model training, retrieval to optional generation with LLMs, and comprehensive evaluation metrics.
+
+---
+
+## Table of Contents
+
+1. [Features](#features)
+2. [Prerequisites](#prerequisites)
+3. [Setup](#setup)
+4. [Configuration](#configuration)
+5. [Data Preparation](#data-preparation)
+6. [Training](#training)
+
+   * [VAE](#vae)
+   * [DAE](#dae)
+   * [CAE](#cae)
+7. [Pipeline Execution](#pipeline-execution)
+8. [Evaluation](#evaluation)
+9. [Code Style](#code-style)
+10. [Project Structure](#project-structure)
+11. [Testing](#testing)
+12. [Scripts](#scripts)
+
+---
+
+## Features
+
+* Encode text embeddings using SBERT and compress with VAE/DAE/CAE.
+* Retrieve top‑k relevant documents using cosine, Euclidean or Mahalanobis similarity.
+* Generate answers via RAG using OpenAI GPT-4o-mini with custom system prompts.
+* Evaluate retrieval (Recall\@k, MRR, nDCG) and generation (BLEU, ROUGE-L, METEOR) with bootstrap CIs.
+* Configurable via YAML; extensible for other datasets or LLM providers.
+
+## Prerequisites
+
+* Python ≥ 3.10
+* GPU recommended for large-scale embedding and training.
+* OpenAI API key (set in `.env` as `OPENAI_API_KEY`).
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Setup
+
+1. Clone the repository:
+
+```bash
+
+git clone https://github.com/engares/latent-rag.git
+cd latent-rag
+```
+
+2. Create `.env` with your OpenAI key:
+```ini
+OPENAI_API_KEY=your_api_key_here
+````
+
+3. Adjust paths and hyperparameters in **`config/config.yaml`** as needed.
+
+## Configuration
+
+**`config/config.yaml`** contains:
+
+* Project metadata (name, version)
+* Directory paths (`data_dir`, `checkpoints_dir`, `logs_dir`)
+* Embedding model settings
+* Autoencoder parameters and checkpoints
+* Training hyperparameters (batch size, epochs, LR)
+* Retrieval & generation options
+* Evaluation metrics
+* Logging level and file
+
+System prompt for generation is located in **`config/prompts/system_prompt.txt`**.
+
+## Data Preparation
+
+Data tensors for SQuAD are generated automatically when running training or pipeline. To prepare manually:
+
+```bash
+python -c "from utils.data_utils import ensure_squad_data; ensure_squad_data(output_dir='./data/SQUAD')"
+```
+
+This creates:
+
+* `data/SQUAD/squad_vae_embeddings.pt`
+* `data/SQUAD/squad_dae_embeddings.pt`
+* `data/SQUAD/squad_contrastive_embeddings.pt`
+
+## Training
+
+### VAE
+
+```bash
+python training/train_vae.py \
+  --dataset squad \
+  --epochs 50 \
+  --batch_size 128 \
+  --lr 1e-3 \
+  --save_path models/checkpoints/vae_text.pth
+```
+
+### DAE
+
+```bash
+python training/train_dae.py \
+  --dataset squad \
+  --epochs 50 \
+  --batch_size 128 \
+  --lr 1e-3 \
+  --save_path models/checkpoints/dae_text.pth
+```
+
+### CAE
+
+```bash
+python training/train_cae.py \
+  --dataset squad \
+  --epochs 50 \
+  --batch_size 128 \
+  --lr 1e-3 \
+  --save_path models/checkpoints/contrastive_ae.pth
+```
+
+All training scripts support early stopping, checkpointing and configurable device.
+
+## Pipeline Execution
+
+Run the end-to-end RAG pipeline:
+
+```bash
+python main.py --config config/config.yaml --ae_type vae
+```
+
+Replace `--ae_type` with `dae`, `contrastive`, `all` or `none`. The pipeline will:
+
+1. Encode corpus and queries
+2. Retrieve top‑k documents
+3. Generate answers via GPT-4o-mini
+4. Evaluate retrieval and generation metrics
+
+## Evaluation
+
+* Retrieval metrics: per-query and aggregated Recall\@k, MRR, nDCG.
+* Generation metrics: BLEU, ROUGE-L, METEOR with 95% bootstrap CIs.
+* Visualise embeddings via **`evaluation/autoencoder_metrics.py`** (t-SNE plots).
+
+Commands:
+
+```python
+from evaluation.retrieval_metrics import evaluate_retrieval
+from evaluation.generation_metrics import evaluate_generation_bootstrap
+```
+
+
+## Project Structure
+
+```text
+src/
+├── config/           # YAML and prompts
+├── data/             # Embedding tensors and loaders
+├── evaluation/       # Metrics and visualisations
+├── generation/       # RAG generator
+├── models/           # AE implementations
+├── retrieval/        # Embeddings & retriever
+├── training/         # Training scripts and loss functions
+├── utils/            # Helpers (config, data, logging)
+├── test/             # Unit tests (pytest)
+├── main.py           # CLI orchestration
+├── requirements.txt
+└── style_guide.md
+```
+
+## Testing
+
+Run all tests via pytest:
+
+```bash
+pytest -q
+```
+
+Coverage threshold: 80% (unit tests for data processing, models, retrieval, evaluation, training scripts).
+
+
 """
 
 config/config.yaml
@@ -208,78 +407,6 @@ def build_contrastive_pairs(dataset, max_negatives=1) -> List[Dict]:
         for neg in negs:
             pairs.append({"query": q, "positive": pos, "negative": neg})
     return pairs
-
-"""
-
-data/squad_loader.py
-"""
-from __future__ import annotations
-from typing import Dict, List, Optional
-from datasets import load_dataset
-
-__all__ = [
-    "SquadExample",
-    "load_squad",
-]
-
-SquadExample = Dict[str, str]  # keys: question, context, answer
-
-
-# ---------------------------------------------------------------------------
-# Loader
-# ---------------------------------------------------------------------------
-
-def load_squad(
-    *,
-    version: str = "v1",  # "v1" | "v2"
-    split: str = "train",  # "train" | "validation"
-    max_samples: Optional[int] = None,
-    keep_unanswerable: bool = False,
-) -> List[SquadExample]:
-    """Return a list of canonical SQuAD examples.
-
-    Args:
-        version: Which dataset variant to use.  "v2" contains unanswerable
-            questions.  "v1" provides only answerable ones.
-        split: Dataset split to load.  Must be either "train" or "validation".
-        max_samples: Optional hard cap on the number of examples returned.  Use
-            this for quick prototyping.
-        keep_unanswerable: If *False* (default) and *version == 'v2'*, examples
-            without an answer are filtered out.
-
-    Returns:
-        A list of dicts with keys ``question``, ``context`` and ``answer`` (the
-        first answer string provided by the annotation set).
-    """
-
-    if version not in {"v1", "v2"}:
-        raise ValueError("version must be 'v1' or 'v2'")
-    if split not in {"train", "validation"}:
-        raise ValueError("split must be 'train' or 'validation'")
-
-    hf_name = "squad_v2" if version == "v2" else "squad"
-    ds = load_dataset(hf_name, split=split)
-
-    examples: List[SquadExample] = []
-    for ex in ds:
-        question = ex["question"].strip()
-        context = ex["context"].strip()
-
-        # v2 contains lists of possible answers + a boolean flag
-        if version == "v2":
-            if not ex["answers"]["answer_start"] and not keep_unanswerable:
-                # skip no annotated answer 
-                continue
-            answer = ex["answers"]["text"][0] if ex["answers"]["text"] else ""
-        else:  # v1
-            answer = ex["answers"][0]["text"]
-
-        examples.append({"question": question, "context": context, "answer": answer})
-
-    if max_samples is not None:
-        examples = examples[: max_samples]
-
-    return examples
 
 """
 
@@ -412,6 +539,52 @@ def visualize_embeddings(embeddings: torch.Tensor, labels: torch.Tensor = None, 
 
     plt.title(title)
     plt.show()
+"""
+
+evaluation/benchmark.py
+"""
+# /evalaution/benchmark.py
+from typing import Dict, Sequence
+from retrieval.bm25 import BM25Retriever
+from retrieval.dpr  import DPRRetriever
+from retrieval.embedder import EmbeddingCompressor
+from utils.load_config import load_config
+from evaluation.retrieval_metrics import evaluate_retrieval, paired_bootstrap_test
+
+Retrievers = {
+    "bm25":  BM25Retriever(),
+    "dpr":   DPRRetriever(),
+    "sbert": EmbeddingCompressor(),          # no AE
+    "vae":   EmbeddingCompressor(ae_type="vae"),
+    "dae":   EmbeddingCompressor(ae_type="dae"),
+    "cae":   EmbeddingCompressor(ae_type="contrastive"),
+}
+
+def run_benchmark(queries: Sequence[str],
+                  corpus:  Sequence[str],
+                  gold:    Sequence[Sequence[str]],
+                  cfg_path="./config/config.yaml") -> None:
+    cfg = load_config(cfg_path)
+    metrics = cfg["evaluation"]["retrieval_metrics"]
+    results: Dict[str, Dict[str, float]] = {}
+
+    for name, retr in Retrievers.items():
+        retr.build_index(corpus)
+        retrieved = [retr.retrieve(q, k=cfg["retrieval"]["top_k"]) for q in queries]
+        summary   = evaluate_retrieval(retrieved, gold, metrics)   # media + sd
+        results[name] = {m: v["mean"] for m, v in summary.items()}
+        print(f"{name.upper():<6}", summary)
+
+    # Significancia (ejemplos)
+    _print_sig(results, queries, gold, metrics[0])
+
+def _print_sig(res, queries, gold, metric):
+    from itertools import combinations
+    for a, b in combinations(res.keys(), 2):
+        pa, pb = res[a][metric], res[b][metric]
+        # bootstrap paired significance (aproveche evaluate_generation_bootstrap si lo desea)
+        print(f"{a} vs {b}: Δ={pa-pb:+.4f}")
+
 """
 
 evaluation/generation_metrics.py
@@ -637,10 +810,10 @@ def evaluate_retrieval(retrieved_batch: List[Sequence[ID]] | Sequence[ID],
         relevant_batch  = [relevant_batch]               # type: ignore[assignment]
 
     assert len(retrieved_batch) == len(relevant_batch), \
-        "retrieved_batch y relevant_batch deben tener la misma longitud."
+        "retrieved_batch and relevant_batch must have the same length."
 
     if not metrics:
-        raise ValueError("No se especificaron métricas de evaluación.")
+        raise ValueError("No metrics specified.")
 
     Q = len(retrieved_batch)
     per_query: List[Dict[str, float]] = [{} for _ in range(Q)]
@@ -804,6 +977,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 from dotenv import load_dotenv
+from utils.data_utils import load_evaluation_data
 
 # Third‑party
 from rich import print as rprint
@@ -1010,6 +1184,14 @@ def _parse_args() -> argparse.Namespace:  # noqa: D401
     parser.add_argument("--ae_type", default="vae", choices=valid_ae, help="Select auto‑encoder variant")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 
+    parser.add_argument("--dataset", choices=["squad", "uda"], default="squad",
+                    help="Dataset for evaluation (SQuAD or UDA)")
+    parser.add_argument("--max_samples", type=int, default=200,
+                        help="Maximum number of queries to use")
+    parser.add_argument("--benchmark", action="store_true",
+                        help="Compare against BM25, DPR, SBERT, AE...")
+
+
     return parser.parse_args()
 
 
@@ -1032,19 +1214,7 @@ def main() -> None:  # noqa: D401 – standard script
     )
 
     # --------------------------------------------------------------------- Toy corpus (replace with real dataset) --
-    corpus = [
-        "Paris is the capital of France.",
-        "The Pythagorean theorem applies to right‑angled triangles.",
-        "The Spanish Civil War began in 1936.",
-        "GPT is a language model developed by OpenAI.",
-        "Autoencoders allow nonlinear compression.",
-    ]
-    queries = [
-        "Which model does OpenAI use for text generation?",
-    ]
-    relevant = [
-        ["GPT is a language model developed by OpenAI."]
-    ]
+    queries, corpus, relevant = load_evaluation_data(args.dataset, max_samples=2) # args.max_samples
 
     # --------------------------------------------------------------------- Run each variant
     for ae in ae_variants:
@@ -1230,6 +1400,7 @@ pandas>=2.0.0
 datasets>=2.19.0
 scipy>=1.10.0
 openai>=1.14.0
+pyserini>=0.21
 
 
 # Visualization & Analysis
@@ -1248,6 +1419,88 @@ python-dotenv>=1.0.0
 rich>=13.0.0
 
 pytest 
+"""
+
+retrieval/base.py
+"""
+from __future__ import annotations
+from typing import Protocol, Sequence, Tuple, List
+
+class BaseRetriever(Protocol):
+    """Interface for all first-stage retrievers."""
+    def build_index(self, corpus: Sequence[str]) -> None: ...
+    def retrieve(self, query: str, k: int) -> List[Tuple[str, float]]: ...
+
+"""
+
+retrieval/bm25.py
+"""
+from pyserini.search import SimpleSearcher            # pip install pyserini>=0.21
+from retrieval.base import BaseRetriever
+import tempfile, os, json
+
+class BM25Retriever(BaseRetriever):
+    def __init__(self, bm25_k1: float = 0.9, b: float = 0.4):
+        self.k1, self.b = bm25_k1, b
+        self._searcher = None
+        self._tmpdir   = tempfile.mkdtemp()
+
+    def build_index(self, corpus):
+        # 1) escribir cada doc en un fichero JSONL (id + text)
+        tmp_jsonl = os.path.join(self._tmpdir, "docs.jsonl")
+        with open(tmp_jsonl, "w", encoding="utf-8") as f:
+            for i, doc in enumerate(corpus):
+                f.write(json.dumps({"id": str(i), "contents": doc}) + "\n")
+
+        # 2) invocar indexador Lucene
+        from pyserini.index import build_index
+        build_index(tmp_jsonl, self._tmpdir, overwrite=True)
+
+        # 3) abrir buscador Lucene
+        self._searcher = SimpleSearcher(self._tmpdir)
+        self._searcher.set_bm25(self.k1, self.b)
+
+    def retrieve(self, query, k):
+        hits = self._searcher.search(query, k)
+        return [(h.raw, float(h.score)) for h in hits]
+
+"""
+
+retrieval/dpr.py
+"""
+from retrieval.base import BaseRetriever
+from sentence_transformers import SentenceTransformer
+import faiss, numpy as np
+
+class DPRRetriever(BaseRetriever):
+    """Dense Passage Retrieval (dual-encoder)."""
+    def __init__(self,
+                 q_model: str = "facebook-dpr-question_encoder-single-nq-base",
+                 p_model: str = "facebook-dpr-ctx_encoder-single-nq-base",
+                 device: str | None = None):
+        self.q_encoder = SentenceTransformer(q_model, device=device)
+        self.p_encoder = SentenceTransformer(p_model, device=device)
+        self.index = None
+        self.docs  = []
+
+    def build_index(self, corpus):
+        self.docs = list(corpus)
+        emb = self.p_encoder.encode(self.docs,
+                                    batch_size=64,
+                                    convert_to_numpy=True,
+                                    normalize_embeddings=True)
+        d = emb.shape[1]
+        self.index = faiss.IndexHNSWFlat(d, 32)
+        self.index.hnsw.efConstruction = 200
+        self.index.add(emb.astype("float32"))
+
+    def retrieve(self, query, k):
+        q_emb = self.q_encoder.encode([query],
+                                      convert_to_numpy=True,
+                                      normalize_embeddings=True)
+        dist, idx = self.index.search(q_emb.astype("float32"), k)
+        return [(self.docs[i], float(-dist[0][j])) for j, i in enumerate(idx[0])]
+
 """
 
 retrieval/embedder.py
@@ -1424,751 +1677,6 @@ def retrieve_top_k(
 
 """
 
-save_snapshot.sh
-"""
-#!/usr/bin/env bash
-#
-# save_snapshot.sh  –  Dump a folder’s tree plus every file’s contents
-# Usage:
-#   ./save_snapshot.sh [TARGET_DIR] [OUTPUT_TXT]
-# Defaults:
-#   TARGET_DIR="."                  (current directory)
-#   OUTPUT_TXT="snapshot.txt"       (created/overwritten)
-
-set -euo pipefail
-
-###############################################################################
-# 1. Input handling
-###############################################################################
-TARGET_DIR="${1:-.}"
-OUTPUT_TXT="${2:-snapshot.txt}"
-
-# Verify prerequisites
-command -v tree >/dev/null 2>&1 || {
-  printf 'Error: "tree" command not found. Please install it first.\n' >&2; exit 1; }
-
-# Avoid accidental overwrite of important files
-if [[ -e "$OUTPUT_TXT" && ! -w "$OUTPUT_TXT" ]]; then
-  printf 'Error: Output file "%s" is not writable.\n' "$OUTPUT_TXT" >&2
-  exit 1
-fi
-
-###############################################################################
-# 2. Capture the directory tree
-###############################################################################
-# Truncate/overwrite existing output
-: > "$OUTPUT_TXT"
-
-printf '### Directory tree for: %s\n\n' "$TARGET_DIR" >> "$OUTPUT_TXT"
-tree -F -I '__pycache__' "$TARGET_DIR" >> "$OUTPUT_TXT" || {
-  printf 'Warning: Unable to generate tree for "%s".\n' "$TARGET_DIR" >&2; }
-
-printf '\n\n### File contents\n\n' >> "$OUTPUT_TXT"
-
-###############################################################################
-# 3. Append each file (relative path + contents)
-###############################################################################
-# Absolute path to output for comparison
-ABS_OUTPUT="$(realpath "$OUTPUT_TXT")"
-
-# Exclude hidden files, __pycache__, and specific extensions
-find "$TARGET_DIR" -type f \
-  ! -path '*/.*/*' \
-  ! -name '.*' \
-  ! -path '*/__pycache__/*' \
-  -print0 | sort -z |
-while IFS= read -r -d '' FILE
-do
-  # Resolve absolute path of the file
-  ABS_FILE="$(realpath "$FILE")"
-
-  # Skip the output file itself
-  if [[ "$ABS_FILE" == "$ABS_OUTPUT" ]]; then
-    continue
-  fi
-
-  # Skip files with undesired extensions
-  case "$FILE" in
-    *.pt|*.pth|*.ipynb|*.log)
-      continue
-      ;;
-  esac
-
-  # Remove leading base path for relative display
-  REL_PATH="${FILE#$TARGET_DIR/}"
-
-  # Header
-  printf '%s\n' "$REL_PATH" >> "$OUTPUT_TXT"
-  printf '"""\n' >> "$OUTPUT_TXT"
-
-  # File contents
-  if ! cat "$FILE" >> "$OUTPUT_TXT" 2>/dev/null; then
-    printf '[[[ Error reading file ]]]\n' >> "$OUTPUT_TXT"
-    printf 'Warning: Could not read "%s".\n' "$REL_PATH" >&2
-  fi
-
-  # Footer
-  printf '\n"""\n\n' >> "$OUTPUT_TXT"
-done
-
-printf 'Snapshot saved to: %s\n' "$OUTPUT_TXT"
-
-"""
-
-style_guide.md
-"""
-# Project-wide Code Style Guide (English)
-
-> **Scope**  All Python modules, notebooks, shell scripts and configuration files located under the `tfm` repository.  New code **must** comply immediately.  Legacy code should be progressively refactored.
-
----
-
-## 1  General Principles
-
-| Principle                         | Rationale                                                        |
-| --------------------------------- | ---------------------------------------------------------------- |
-| **Consistency over cleverness**   | Readability and maintenance outweigh micro-optimisations.        |
-| **Explicit > implicit**           | Follow *The Zen of Python*. Avoid hidden state and side effects. |
-| **Fail fast, fail loud**          | Raise specific exceptions early; log context-rich messages.      |
-| **Pure functions where possible** | Functions that depend only on arguments are easier to test.      |
-
----
-
-## 2  File & Folder Layout
-
-* Package modules use **snake\_case** filenames: `contrastive_autoencoder.py`.
-* Public executables go under `/scripts` with a short shebang and CLI (`argparse`).
-* Unit tests mirror the package tree under `/tests`.
-* Keep data or model artefacts out of Git; place under `/data` or `/models/checkpoints` and add to `.gitignore`.
-
----
-
-## 3  Imports
-
-```
-# 1. Standard library
-import os
-import json
-
-# 2. Third-party
-import numpy as np
-import torch
-
-# 3. First-party (this repo)
-from utils.load_config import load_config
-```
-
-* Use **absolute imports** inside the package.
-* Never use `from module import *`.
-* Group imports and separate blocks with one blank line.
-
----
-
-## 4  Naming Conventions
-
-* **snake\_case** for variables, functions and methods.
-* **PascalCase** for classes and `Enum` members.
-* **UPPER\_SNAKE\_CASE** for module-level constants.
-* Avoid Spanish identifiers; prefer descriptive English (`embedding_dim`, not `dim_emb`).
-
----
-
-## 5  Docstrings & Comments
-
-* **Every** public module, function, class and method **must** have a docstring in **English** using the **Google style**.
-* Keep inline comments short; they explain *why*, not *what*.
-* TODO/FIXME tags must include assignee or ticket reference.
-
-```python
-def recall_at_k(retrieved: Sequence[str], relevant: Sequence[str], k: int) -> float:
-    """Return Recall@k.
-
-    Args:
-        retrieved: Ordered list of retrieved IDs.
-        relevant: Set or list of relevant IDs.
-        k: Cut-off rank.
-
-    Returns:
-        Fraction of relevant items found in the top-k.
-    """
-```
-
----
-
-## 6  Type Annotations & Runtime Checks
-
-* Use **PEP 484** type hints everywhere (functions, class attributes).
-* **All functions must declare input and output types explicitly.**
-* Validate external inputs with `assert` or explicit `if ... raise ValueError`.
-* Run **mypy** in *strict* mode as a CI step.
-
----
-
-## 7  Logging
-
-* Initialise loggers via `utils.load_config.init_logger`.
-* Use module-level loggers: `logger = logging.getLogger(__name__)`.
-* Logging levels: `debug` (dev insights), `info` (milestones), `warning` (recoverable), `error` (cannot proceed), `critical` (program abort).
-* Never hide exceptions; use `logger.exception` to preserve traceback.
-
----
-
-## 8  Error Handling
-
-* Prefer built-in exceptions (`ValueError`, `TypeError`) unless a custom domain error clarifies intent.
-* Enrich messages with variable values.
-* Do **not** swallow exceptions silently.
-
----
-
-## 9  Configuration Management
-
-* All hyper-parameters live in YAML under `/config`.
-* Load configs **only** through `utils.load_config.load_config`.
-* Functions accept an explicit `config: dict` argument instead of reading files internally, unless the function’s **sole purpose** is configuration loading.
-
----
-
-## 10  CLI & Scripts
-
-* Use `argparse` with long option names (`--batch_size`).
-* Provide `--config` flag pointing to a YAML; CLI flags override YAML.
-* Scripts must be import-safe (`if __name__ == "__main__":`).
-
----
-
-## 11  Testing & Quality Gates
-
-* Write **pytest** unit tests covering critical paths.
-* Minimum coverage threshold: **80 %**.
-* Run `black`, `ruff`, `isort`, `mypy` and tests in CI before merge.
-
----
-
-## 12  Formatting Tools
-
-| Tool      | Version | Role                                 |
-| --------- | ------- | ------------------------------------ |
-| **black** | 24.3+   | Code formatting (line length 88).    |
-| **ruff**  | 0.3+    | Linter (select = "ALL", ignore = …). |
-| **isort** | 5+      | Import ordering (profile = "black"). |
-
----
-
-## 13  Dependencies & Virtual Envs
-
-* Pin versions in `requirements.txt` (prod) and `requirements-dev.txt` (lint/test).
-* Use **conda** or **venv**; never rely on system Python.
-* Document GPU/CPU requirements in `README.md`.
-
----
-
-## 14  Internationalisation
-
-* **All code, comments and docstrings must be in English.**  Spanish is reserved for external documentation or academic writing outside the repository.
-
----
-
-## 15  Example Module Skeleton
-
-```python
-"""Contrastive Autoencoder model.
-
-Implements an encoder–decoder architecture trained with triplet loss.
-"""
-from __future__ import annotations
-
-import torch
-from torch import nn, Tensor
-
-class ContrastiveAutoencoder(nn.Module):
-    """Linear contrastive autoencoder with L2-normalised latent vectors."""
-
-    def __init__(self, input_dim: int, latent_dim: int, hidden_dim: int = 512):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, latent_dim),
-        )
-        self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, input_dim),
-        )
-
-    def encode(self, x: Tensor) -> Tensor:  # noqa: D401
-        """Return L2-normalised latent representation."""
-        return torch.nn.functional.normalize(self.encoder(x), p=2, dim=-1)
-
-    def decode(self, z: Tensor) -> Tensor:
-        return self.decoder(z)
-
-    def forward(self, x: Tensor) -> Tensor:    # type: ignore[override]
-        return self.decode(self.encode(x))
-```
-
----
-
-## 16  Migration Plan for Legacy Code
-
-1. **Phase 1**  — New code follows this guide immediately.
-2. **Phase 2**  — Touch legacy modules only when editing; refactor headers, identifiers, comments to English.
-3. **Phase 3**  — Run automated formatters; fix mypy errors; localised refactors.
-
----
-
-*End of style guide.*
-
-"""
-
-test/test_data_processing.py
-"""
-import unittest
-from data.data_processing import clean_text, add_noise, build_dae_dataset, build_contrastive_pairs
-import torch
-
-class TestDataProcessing(unittest.TestCase):
-
-    def test_clean_text(self):
-        self.assertEqual(clean_text("  Hello   World  "), "Hello World")
-        self.assertEqual(clean_text("\nHello\tWorld\n"), "Hello World")
-
-    def test_add_noise(self):
-        text = "This is a test sentence"
-        noisy_text = add_noise(text, removal_prob=0.5, swap_prob=0.5)
-        self.assertNotEqual(text, noisy_text)  # Ensure noise is added
-
-    def test_build_dae_dataset(self):
-        samples = ["This is a test", "Another example"]
-        dataset = build_dae_dataset(samples)
-        self.assertEqual(len(dataset), len(samples))
-        for item in dataset:
-            self.assertIn("input", item)
-            self.assertIn("target", item)
-
-    def test_dae_dataset_uniqueness(self):
-        samples = ["This is a test", "Another example", "Yet another test"]
-        dataset = build_dae_dataset(samples)
-        inputs = [item["input"] for item in dataset]
-        self.assertEqual(len(inputs), len(set(inputs)), "All inputs in the dataset should be unique")
-
-    def test_build_contrastive_pairs(self):
-        dataset = [ # ai generated test
-            {
-                "query": "What is AI?",
-                "positive_passages": [{"text": "AI is artificial intelligence."}],
-                "negative_passages": [
-                    {"text": "AI is a type of food."},
-                    {"text": "AI is a movie."}
-                ]
-            }
-        ]
-        pairs = build_contrastive_pairs(dataset, max_negatives=1)
-        self.assertEqual(len(pairs), 1)
-        self.assertIn("query", pairs[0])
-        self.assertIn("positive", pairs[0])
-        self.assertIn("negative", pairs[0])
-
-    def test_contrastive_pairs_uniqueness(self):
-        dataset = [
-            {
-                "query": "What is AI?",
-                "positive_passages": [{"text": "AI is artificial intelligence."}],
-                "negative_passages": [
-                    {"text": "AI is a type of food."},
-                    {"text": "AI is a movie."}
-                ]
-            },
-            {
-                "query": "What is ML?",
-                "positive_passages": [{"text": "ML is machine learning."}],
-                "negative_passages": [
-                    {"text": "ML is a type of food."},
-                    {"text": "ML is a movie."}
-                ]
-            }
-        ]
-        pairs = build_contrastive_pairs(dataset, max_negatives=1)
-        unique_pairs = {tuple(pair.values()) for pair in pairs}
-        self.assertEqual(len(pairs), len(unique_pairs), "All contrastive pairs should be unique")
-
-    def test_load_and_compare_embeddings(self):
-        vae_embeddings = torch.load("./data/SQUAD/squad_vae_embeddings.pt")
-        dae_embeddings = torch.load("./data/SQUAD/squad_dae_embeddings.pt")
-
-        self.assertIsNotNone(vae_embeddings, "VAE embeddings should not be None")
-        self.assertIsNotNone(dae_embeddings, "DAE embeddings should not be None")
-
-        if isinstance(vae_embeddings, dict):
-            print("VAE embeddings keys:", vae_embeddings.keys())
-        if isinstance(dae_embeddings, dict):
-            print("DAE embeddings keys:", dae_embeddings.keys())
-
-        if isinstance(vae_embeddings, dict):
-            vae_embeddings = vae_embeddings.get("input", None)
-        if isinstance(dae_embeddings, dict):
-            dae_embeddings = dae_embeddings.get("input", None)
-
-        self.assertIsInstance(vae_embeddings, torch.Tensor, "VAE embeddings should be a tensor")
-        self.assertIsInstance(dae_embeddings, torch.Tensor, "DAE embeddings should be a tensor")
-
-        self.assertFalse(torch.equal(vae_embeddings, dae_embeddings), "VAE and DAE embeddings should be different")
-
-    def test_load_and_compare_contrastive_embeddings(self):
-        contrastive_embeddings = torch.load("./data/SQUAD/squad_contrastive_embeddings.pt")
-
-        self.assertIsNotNone(contrastive_embeddings, "Contrastive embeddings should not be None")
-
-        if isinstance(contrastive_embeddings, dict):
-            print("Contrastive embeddings keys:", contrastive_embeddings.keys())
-
-        if isinstance(contrastive_embeddings, dict):
-            query_embeddings = contrastive_embeddings.get("query", None)
-            positive_embeddings = contrastive_embeddings.get("positive", None)
-            negative_embeddings = contrastive_embeddings.get("negative", None)
-
-        self.assertIsInstance(query_embeddings, torch.Tensor, "Query embeddings should be a tensor")
-        self.assertIsInstance(positive_embeddings, torch.Tensor, "Positive embeddings should be a tensor")
-        self.assertIsInstance(negative_embeddings, torch.Tensor, "Negative embeddings should be a tensor")
-        self.assertFalse(torch.equal(query_embeddings, positive_embeddings), "Query and positive embeddings should be different")
-        self.assertFalse(torch.equal(query_embeddings, negative_embeddings), "Query and negative embeddings should be different")
-        self.assertFalse(torch.equal(positive_embeddings, negative_embeddings), "Positive and negative embeddings should be different")
-
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-"""
-
-test/test_evaluation.py
-"""
-import pytest
-import torch
-import numpy as np
-from evaluation.retrieval_metrics import recall_at_k, mrr, ndcg_at_k, evaluate_retrieval
-from evaluation.generation_metrics import compute_bleu, compute_rouge_l, evaluate_generation_bootstrap
-from evaluation.autoencoder_metrics import evaluate_reconstruction_loss
-
-# ------------------- Retrieval Metrics -------------------
-def test_recall_at_k():
-    retrieved = [1, 2, 3, 4, 5]
-    relevant = [3, 4, 6]
-    assert recall_at_k(retrieved, relevant, k=3) == 1 / 3, "Recall@k mismatch"
-
-def test_mrr():
-    retrieved = [1, 2, 3, 4, 5]
-    relevant = [3, 4, 6]
-    assert mrr(retrieved, relevant) == 1 / 3, "MRR mismatch"
-
-def test_ndcg_at_k():
-    retrieved = [1, 2, 3, 4, 5]
-    relevant = [3, 4, 6]
-    assert np.isclose(ndcg_at_k(retrieved, relevant, k=3), 0.23463936301137822, atol=1e-6), "NDCG@k mismatch"
-
-def test_evaluate_retrieval():
-    retrieved_batch = [[1, 2, 3], [4, 5, 6]]
-    relevant_batch = [[3, 4], [5, 6]]
-    metrics = ["recall@2", "mrr"]
-    results = evaluate_retrieval(retrieved_batch, relevant_batch, metrics)
-    assert "recall@2" in results and "mrr" in results, "Evaluation metrics missing"
-
-# ------------------- Generation Metrics -------------------
-def test_compute_bleu():
-    refs = ["this is a test"]
-    cands = ["this is a test"]
-    assert np.isclose(compute_bleu(cands, refs), 100.0, atol=1e-6), "BLEU mismatch"
-
-def test_compute_rouge_l():
-    refs = ["this is a test"]
-    cands = ["this is a test"]
-    assert compute_rouge_l(cands, refs) == 100.0, "ROUGE-L mismatch"
-
-def test_evaluate_generation_bootstrap():
-    refs = ["this is a test"] * 30
-    cands = ["this is a test"] * 30
-    results = evaluate_generation_bootstrap(refs, cands, metrics=["BLEU", "ROUGE-L"], n_samples=100)
-    assert "BLEU" in results and "ROUGE-L" in results, "Bootstrap metrics missing"
-
-# ------------------- Autoencoder Metrics -------------------
-def test_evaluate_reconstruction_loss():
-    x = torch.randn(10, 16)
-    x_reconstructed = x + torch.randn(10, 16) * 0.1
-    loss = evaluate_reconstruction_loss(x, x_reconstructed, reduction="mean")
-    assert loss > 0, "Reconstruction loss should be positive"
-
-"""
-
-test/test_loss_functions.py
-"""
-import torch
-import pytest
-from training.loss_functions import vae_loss, dae_loss, contrastive_loss
-
-# ------------------- VAE Loss -------------------
-def test_vae_loss_basic():
-    x_reconstructed = torch.randn(8, 16)
-    x_target = torch.randn(8, 16)
-    mu = torch.zeros(8, 4)
-    logvar = torch.zeros(8, 4)
-    loss = vae_loss(x_reconstructed, x_target, mu, logvar)
-    assert loss.shape == (), "VAE loss should be a scalar"
-    assert loss.item() >= 0
-
-def test_vae_loss_beta():
-    x_reconstructed = torch.randn(4, 10)
-    x_target = torch.randn(4, 10)
-    mu = torch.randn(4, 3)
-    logvar = torch.randn(4, 3)
-    loss1 = vae_loss(x_reconstructed, x_target, mu, logvar, beta=0.5)
-    loss2 = vae_loss(x_reconstructed, x_target, mu, logvar, beta=2.0)
-    assert loss1 != loss2
-
-# ------------------- DAE Loss -------------------
-def test_dae_loss_basic():
-    x_reconstructed = torch.randn(5, 7)
-    x_clean = torch.randn(5, 7)
-    loss = dae_loss(x_reconstructed, x_clean)
-    assert loss.shape == (), "DAE loss should be a scalar"
-    assert loss.item() >= 0
-
-# ------------------- Contrastive Loss -------------------
-def test_contrastive_loss_hard_negatives():
-    z_q = torch.randn(6, 8)
-    z_pos = torch.randn(6, 8)
-    loss = contrastive_loss(z_q, z_pos, hard_negatives=True)
-    assert loss.shape == (), "Contrastive loss should be a scalar"
-    assert loss.item() >= 0
-
-def test_contrastive_loss_random_negatives():
-    z_q = torch.randn(6, 8)
-    z_pos = torch.randn(6, 8)
-    loss = contrastive_loss(z_q, z_pos, hard_negatives=False)
-    assert loss.shape == (), "Contrastive loss should be a scalar"
-    assert loss.item() >= 0
-
-def test_contrastive_loss_margin_effect():
-    z_q = torch.randn(4, 5)
-    z_pos = torch.randn(4, 5)
-    loss1 = contrastive_loss(z_q, z_pos, margin=0.1)
-    loss2 = contrastive_loss(z_q, z_pos, margin=1.0)
-    assert loss1 != loss2
-
-"""
-
-test/test_models.py
-"""
-import pytest
-import torch
-from models.variational_autoencoder import VariationalAutoencoder
-from models.denoising_autoencoder import DenoisingAutoencoder
-from models.contrastive_autoencoder import ContrastiveAutoencoder
-
-# ------------------- Variational Autoencoder -------------------
-def test_variational_autoencoder():
-    model = VariationalAutoencoder(input_dim=16, latent_dim=4, hidden_dim=8)
-    x = torch.randn(2, 16)
-    x_reconstructed, mu, logvar = model(x)
-
-    assert x_reconstructed.shape == x.shape, "Reconstructed output shape mismatch"
-    assert mu.shape == (2, 4), "Latent mean shape mismatch"
-    assert logvar.shape == (2, 4), "Latent logvar shape mismatch"
-
-# ------------------- Denoising Autoencoder -------------------
-def test_denoising_autoencoder():
-    model = DenoisingAutoencoder(input_dim=16, latent_dim=4, hidden_dim=8)
-    x_noisy = torch.randn(2, 16)
-    x_reconstructed = model(x_noisy)
-
-    assert x_reconstructed.shape == x_noisy.shape, "Reconstructed output shape mismatch"
-
-# ------------------- Contrastive Autoencoder -------------------
-def test_contrastive_autoencoder():
-    model = ContrastiveAutoencoder(input_dim=16, latent_dim=4, hidden_dim=8)
-    x = torch.randn(2, 16)
-    x_reconstructed, z = model(x)
-
-    assert x_reconstructed.shape == x.shape, "Reconstructed output shape mismatch"
-    assert z.shape == (2, 4), "Latent embedding shape mismatch"
-
-    # Test normalized embeddings
-    z_norm = torch.norm(z, p=2, dim=-1)
-    assert torch.allclose(z_norm, torch.ones_like(z_norm), atol=1e-6), "Latent embeddings are not normalized"
-
-"""
-
-test/test_retrieval.py
-"""
-import pytest
-import torch
-from retrieval.embedder import EmbeddingCompressor
-from retrieval.retriever import compute_similarity, retrieve_top_k
-
-# ------------------- EmbeddingCompressor -------------------
-def test_embedding_compressor_without_autoencoder():
-    embedder = EmbeddingCompressor()
-    texts = ["This is a test.", "Another test."]
-    embeddings = embedder.encode_text(texts, compress=False)
-
-    assert embeddings.shape == (2, 384), "Embedding shape mismatch"
-
-def test_embedding_compressor_with_autoencoder():
-    class DummyAutoencoder(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-        def encode(self, x):
-            return x * 0.5
-
-    autoencoder = DummyAutoencoder()
-    embedder = EmbeddingCompressor(autoencoder=autoencoder)
-    texts = ["This is a test.", "Another test."]
-    embeddings = embedder.encode_text(texts, compress=True)
-
-    assert embeddings.shape == (2, 384), "Compressed embedding shape mismatch"
-
-# ------------------- Retriever -------------------
-def test_compute_similarity():
-    queries = torch.randn(2, 384)
-    docs = torch.randn(5, 384)
-
-    cosine_sim = compute_similarity(queries, docs, metric="cosine")
-    assert cosine_sim.shape == (2, 5), "Cosine similarity shape mismatch"
-
-    euclidean_sim = compute_similarity(queries, docs, metric="euclidean")
-    assert euclidean_sim.shape == (2, 5), "Euclidean similarity shape mismatch"
-
-    mahalanobis_sim = compute_similarity(queries, docs, metric="mahalanobis")
-    assert mahalanobis_sim.shape == (2, 5), "Mahalanobis similarity shape mismatch"
-
-def test_retrieve_top_k():
-    query = torch.randn(384)
-    docs = torch.randn(10, 384)
-    doc_texts = [f"Document {i}" for i in range(10)]
-
-    top_k = retrieve_top_k(query, docs, doc_texts, k=3, metric="cosine")
-    assert len(top_k) == 3, "Top-k retrieval length mismatch"
-    assert all(isinstance(item, tuple) and len(item) == 2 for item in top_k), "Top-k format mismatch"
-
-"""
-
-test/test_train_scripts.py
-"""
-import pytest
-import torch
-import types
-from training import train_vae, train_dae, train_cae
-
-class DummyLogger:
-    def __init__(self):
-        self.main = self
-        self.train = self
-    def info(self, *args, **kwargs):
-        pass
-
-class DummyDataset(torch.utils.data.Dataset):
-    def __init__(self, n=10, d=8):
-        self.n = n; self.d = d
-    def __len__(self): return self.n
-    def __getitem__(self, idx):
-        return {"input": torch.randn(self.d), "target": torch.randn(self.d), "x": torch.randn(self.d), "y": torch.randn(self.d), "q": torch.randn(self.d), "p": torch.randn(self.d), "n": torch.randn(self.d)}
-
-class DummyVAE(torch.nn.Module):
-    def __init__(self, input_dim, latent_dim, hidden_dim):
-        super().__init__()
-        self.dummy_param = torch.nn.Parameter(torch.zeros(1))
-    def forward(self, x):
-        out = x + self.dummy_param
-        return out, torch.zeros(x.size(0), 2), torch.zeros(x.size(0), 2)
-
-class DummyDAE(torch.nn.Module):
-    def __init__(self, input_dim, latent_dim, hidden_dim):
-        super().__init__()
-        self.dummy_param = torch.nn.Parameter(torch.zeros(1))
-    def forward(self, x):
-        return x + self.dummy_param
-
-class DummyCAE(torch.nn.Module):
-    def __init__(self, input_dim, latent_dim, hidden_dim):
-        super().__init__()
-        self.dummy_param = torch.nn.Parameter(torch.zeros(1))
-    def encode(self, x):
-        return x + self.dummy_param
-    def forward(self, x):
-        return x + self.dummy_param
-
-def patch_train_vae(monkeypatch):
-    monkeypatch.setattr("training.train_vae.EmbeddingVAEDataset", lambda path: DummyDataset())
-    monkeypatch.setattr("training.train_vae.VariationalAutoencoder", DummyVAE)
-    monkeypatch.setattr("training.train_vae.torch.save", lambda *a, **k: None)
-    monkeypatch.setattr("training.train_vae.os.makedirs", lambda *a, **k: None)
-    monkeypatch.setattr("utils.data_utils.split_dataset", lambda ds, val_split: (ds, ds))
-
-def patch_train_dae(monkeypatch):
-    monkeypatch.setattr("training.train_dae.EmbeddingDAEDataset", lambda path: DummyDataset())
-    monkeypatch.setattr("training.train_dae.DenoisingAutoencoder", DummyDAE)
-    monkeypatch.setattr("training.train_dae.torch.save", lambda *a, **k: None)
-    monkeypatch.setattr("training.train_dae.os.makedirs", lambda *a, **k: None)
-    monkeypatch.setattr("utils.data_utils.split_dataset", lambda ds, val_split: (ds, ds))
-
-def patch_train_cae(monkeypatch):
-    monkeypatch.setattr("training.train_cae.EmbeddingTripletDataset", lambda path: DummyDataset())
-    monkeypatch.setattr("training.train_cae.ContrastiveAutoencoder", DummyCAE)
-    monkeypatch.setattr("training.train_cae.torch.save", lambda *a, **k: None)
-    monkeypatch.setattr("training.train_cae.os.makedirs", lambda *a, **k: None)
-    monkeypatch.setattr("utils.data_utils.split_dataset", lambda ds, val_split: (ds, ds))
-
-def test_train_vae_runs(monkeypatch):
-    patch_train_vae(monkeypatch)
-    train_vae.train_vae(
-        dataset_path="dummy",
-        input_dim=8,
-        latent_dim=2,
-        hidden_dim=4,
-        batch_size=2,
-        epochs=1,
-        lr=1e-3,
-        model_save_path="/tmp/vae.pth",
-        val_split=0.2,
-        patience=1,
-        device="cpu",
-    )
-
-def test_train_dae_runs(monkeypatch):
-    patch_train_dae(monkeypatch)
-    train_dae.train_dae(
-        dataset_path="dummy",
-        input_dim=8,
-        latent_dim=2,
-        hidden_dim=4,
-        batch_size=2,
-        epochs=1,
-        lr=1e-3,
-        model_save_path="/tmp/dae.pth",
-        val_split=0.2,
-        patience=1,
-        device="cpu",
-        logger=DummyLogger(),
-    )
-
-def test_train_cae_runs(monkeypatch):
-    patch_train_cae(monkeypatch)
-    train_cae.train_cae(
-        dataset_path="dummy",
-        input_dim=8,
-        latent_dim=2,
-        hidden_dim=4,
-        batch_size=2,
-        epochs=1,
-        lr=1e-3,
-        model_save_path="/tmp/cae.pth",
-        val_split=0.2,
-        patience=1,
-        device="cpu",
-        logger=DummyLogger(),
-    )
-
-"""
 
 training/loss_functions.py
 """
@@ -3062,6 +2570,63 @@ def prepare_datasets(
     if not Path(path).exists():
         raise FileNotFoundError(f"Expected dataset file not found: {path}")
     return path
+
+
+
+
+def load_eval_queries_from_squad(
+    version: str = "v1",
+    split: str = "validation",
+    max_samples: Optional[int] = None,
+    dedup: bool = True,
+) -> Tuple[List[str], List[str], List[List[str]]]:
+    """
+    Prepara triples (queries, corpus, relevantes) para evaluación de retrieval.
+
+    Args:
+        version: "v1" o "v2"
+        split: "train" o "validation"
+        max_samples: límite de queries
+        dedup: si True, elimina contextos repetidos del corpus
+
+    Returns:
+        queries, corpus, relevant_docs (1 a 1 con queries)
+    """
+    ds_name = "squad_v2" if version == "v2" else "squad"
+    ds = load_dataset(ds_name, split=split)
+
+    queries, contexts, relevant = [], [], []
+
+    for ex in ds:
+        q = ex["question"].strip()
+        c = ex["context"].strip()
+
+        # descartar preguntas sin respuesta si es v2
+        if version == "v2":
+            has_answer = bool(ex["answers"]["answer_start"])
+            if not has_answer:
+                continue
+
+        queries.append(q)
+        contexts.append(c)
+        relevant.append([c])  # relevante = ese contexto
+
+        if max_samples and len(queries) >= max_samples:
+            break
+
+    corpus = list(set(contexts)) if dedup else contexts
+    return queries, corpus, relevant
+
+
+def load_evaluation_data(dataset: str, max_samples: int = 200):
+    if dataset == "squad":
+        return load_eval_queries_from_squad(
+            version="v1", split="validation", max_samples=max_samples
+        )
+    elif dataset == "uda":
+        raise NotImplementedError("TODO: soporte UDA")
+    else:
+        raise ValueError(f"Dataset desconocido: {dataset}")
 """
 
 utils/load_config.py

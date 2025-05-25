@@ -308,3 +308,60 @@ def prepare_datasets(
     if not Path(path).exists():
         raise FileNotFoundError(f"Expected dataset file not found: {path}")
     return path
+
+
+
+
+def load_eval_queries_from_squad(
+    version: str = "v1",
+    split: str = "validation",
+    max_samples: Optional[int] = None,
+    dedup: bool = True,
+) -> Tuple[List[str], List[str], List[List[str]]]:
+    """
+    Prepara triples (queries, corpus, relevantes) para evaluación de retrieval.
+
+    Args:
+        version: "v1" o "v2"
+        split: "train" o "validation"
+        max_samples: límite de queries
+        dedup: si True, elimina contextos repetidos del corpus
+
+    Returns:
+        queries, corpus, relevant_docs (1 a 1 con queries)
+    """
+    ds_name = "squad_v2" if version == "v2" else "squad"
+    ds = load_dataset(ds_name, split=split)
+
+    queries, contexts, relevant = [], [], []
+
+    for ex in ds:
+        q = ex["question"].strip()
+        c = ex["context"].strip()
+
+        # descartar preguntas sin respuesta si es v2
+        if version == "v2":
+            has_answer = bool(ex["answers"]["answer_start"])
+            if not has_answer:
+                continue
+
+        queries.append(q)
+        contexts.append(c)
+        relevant.append([c])  # relevante = ese contexto
+
+        if max_samples and len(queries) >= max_samples:
+            break
+
+    corpus = list(set(contexts)) if dedup else contexts
+    return queries, corpus, relevant
+
+
+def load_evaluation_data(dataset: str, max_samples: int = 200):
+    if dataset == "squad":
+        return load_eval_queries_from_squad(
+            version="v1", split="validation", max_samples=max_samples
+        )
+    elif dataset == "uda":
+        raise NotImplementedError("TODO: soporte UDA")
+    else:
+        raise ValueError(f"Dataset desconocido: {dataset}")

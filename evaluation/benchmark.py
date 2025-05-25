@@ -1,17 +1,18 @@
+# /evalaution/benchmark.py
 from typing import Dict, Sequence
 from retrieval.bm25 import BM25Retriever
 from retrieval.dpr  import DPRRetriever
-from retrieval.sbert import SBERTRetriever
+from retrieval.embedder import EmbeddingCompressor
 from utils.load_config import load_config
 from evaluation.retrieval_metrics import evaluate_retrieval, paired_bootstrap_test
 
 Retrievers = {
     "bm25":  BM25Retriever(),
     "dpr":   DPRRetriever(),
-    "sbert": SBERTRetriever(),          # sin AE
-    "vae":   SBERTRetriever(ae_type="vae"),
-    "dae":   SBERTRetriever(ae_type="dae"),
-    "cae":   SBERTRetriever(ae_type="contrastive"),
+    "sbert": EmbeddingCompressor(),          # no AE
+    "vae":   EmbeddingCompressor(ae_type="vae"),
+    "dae":   EmbeddingCompressor(ae_type="dae"),
+    "cae":   EmbeddingCompressor(ae_type="contrastive"),
 }
 
 def run_benchmark(queries: Sequence[str],
