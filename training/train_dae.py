@@ -142,6 +142,11 @@ if __name__ == "__main__":
     # ---------------- Dataset prep -------------------
     dataset_path = prepare_datasets(cfg, variant="dae", dataset_override=args.dataset)
 
+    # ------------- model save path --------------
+    checkpoints_dir = cfg["paths"]["checkpoints_dir"]
+    checkpoint_file = model_cfg.get("checkpoint", "dae_text.pth")
+    model_save_path = args.save_path or os.path.join(checkpoints_dir, checkpoint_file)
+
     # ---------------- Training -----------------------
     train_dae(
         dataset_path=dataset_path,
@@ -151,7 +156,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size or train_cfg.get("batch_size", 256),
         epochs=args.epochs or train_cfg.get("epochs", 20),
         lr=args.lr if args.lr is not None else float(train_cfg.get("learning_rate", 1e-3)),
-        model_save_path=args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/dae_text.pth"),
+        model_save_path=model_save_path,
         val_split=args.val_split,
         patience=None if args.patience == 0 else args.patience,
         device=device,

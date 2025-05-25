@@ -3,7 +3,7 @@ project:
   version: "0.1"
 
 paths:
-  data_dir: "./data"
+  data_dir: "./data/SQUAD2"
   checkpoints_dir: "./models/checkpoints"
   logs_dir: "./logs"
 
@@ -12,32 +12,37 @@ embedding_model:
   max_length: 256
 
 models:
+
+# VARIATIONAL AUTOENCODER
+
   vae:
-    input_dim: 384 # Sentence Transformers embedding dimension
+    input_dim: 384 # S- BERT embedding dimension
     latent_dim: 64 
     hidden_dim: 512
-    dataset_path: "./data/SQUAD/squad_vae_embeddings.pt"          
-    checkpoint: "./models/checkpoints/vae_text.pth"
+    dataset_file: "squad_vae_embeddings.pt"          
+    checkpoint: "vae_text.pth"
 
+# DENOISING AUTOENCODER
   dae:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/SQUAD/squad_dae_embeddings.pt"
-    checkpoint: "./models/checkpoints/dae_text.pth"
+    dataset_file: "squad_dae_embeddings.pt"
+    checkpoint: "dae_text.pth"
 
+# CONTRASTIVE AUTOENCODER
   contrastive:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/SQUAD/squad_contrastive_embeddings.pt"
-    checkpoint: "./models/checkpoints/contrastive_ae.pth"
+    dataset_file: "squad_cae_embeddings.pt"
+    checkpoint: "contrastive_ae.pth"
 
 data:
   dataset: "squad"            #  "uda"  |  "squad"
-  version: "v1"          #  v1, v2  ONly for squad
+  version: "v2"          #  v1, v2  ONly for squad
   max_samples:         #  optional, blankk to use all samples
-  include_unanswerable: false   #  Only Squad
+  include_unanswerable: true   #  Only Squad v2 has this option
 
 training:
   batch_size: 128

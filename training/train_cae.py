@@ -168,22 +168,27 @@ if __name__ == "__main__":
     # ---------- Dataset ---------------------------------------------------
     ds_path = prepare_datasets(cfg, variant="cae", dataset_override=args.dataset)
 
+    # ------------- model save path --------------
+    checkpoints_dir = cfg["paths"]["checkpoints_dir"]
+    checkpoint_file = model_cfg.get("checkpoint", "cae_text.pth")
+    model_save_path = args.save_path or os.path.join(checkpoints_dir, checkpoint_file)
+
     # ---------- Hparams final ---------------------------------------------
     hparams = dict(
-        dataset_path = ds_path,
-        input_dim    = model_cfg.get("input_dim", 384),
-        latent_dim   = model_cfg.get("latent_dim", 64),
-        hidden_dim   = model_cfg.get("hidden_dim", 512),
-        batch_size   = args.batch_size or train_cfg.get("batch_size", 256),
-        epochs       = args.epochs or train_cfg.get("epochs", 20),
-        lr           = args.lr or float(train_cfg.get("learning_rate", 1e-3)),
+        dataset_path= ds_path,
+        input_dim = model_cfg.get("input_dim", 384),
+        latent_dim = model_cfg.get("latent_dim", 64),
+        hidden_dim = model_cfg.get("hidden_dim", 512),
+        batch_size = args.batch_size or train_cfg.get("batch_size", 256),
+        epochs = args.epochs or train_cfg.get("epochs", 20),
+        lr = args.lr or float(train_cfg.get("learning_rate", 1e-3)),
         weight_decay = args.weight_decay,
         clip_grad_norm = args.clip_grad,
-        margin       = args.margin,
+        margin = args.margin,
         hard_negatives = not args.no_hard_negatives,
-        val_split    = args.val_split,
-        patience     = None if args.patience == 0 else args.patience,
-        model_save_path = args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/contrastive_ae.pth"),
+        val_split = args.val_split,
+        patience = None if args.patience == 0 else args.patience,
+        model_save_path = model_save_path,
         logger       = log,
     )
 

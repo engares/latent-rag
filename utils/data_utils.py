@@ -1,4 +1,4 @@
- # /utils/data_utils.py
+# /utils/data_utils.py
 from __future__ import annotations
 import os
 from typing import List, Tuple, Optional
@@ -252,17 +252,18 @@ def _prepare_uda(cfg: dict) -> Dict[str, str]:
         force=False,
     )
     ensure_uda_data(**common)
+    output_dir = common["output_dir"]
     return {
-        "vae": "./data/UDA/uda_vae_embeddings.pt",
-        "dae": "./data/UDA/uda_dae_embeddings.pt",
-        "cae": "./data/UDA/uda_contrastive_embeddings.pt",
+        "vae": os.path.join(output_dir, cfg["models"]["vae"]["dataset_file"]),
+        "dae": os.path.join(output_dir, cfg["models"]["dae"]["dataset_file"]),
+        "cae": os.path.join(output_dir, cfg["models"]["contrastive"]["dataset_file"]),
     }
 
 
 def _prepare_squad(cfg: dict) -> Dict[str, str]:
     data_cfg = cfg["data"]
     common = dict(
-        output_dir="./data/SQUAD/",
+        output_dir=cfg["paths"]["data_dir"],
         max_samples=data_cfg.get("max_samples"),
         base_model_name=cfg["embedding_model"]["name"],
         noise_std=0.05,
@@ -270,10 +271,11 @@ def _prepare_squad(cfg: dict) -> Dict[str, str]:
         force=False,
     )
     ensure_squad_data(**common)
+    output_dir = common["output_dir"]
     return {
-        "vae": "./data/SQUAD/squad_vae_embeddings.pt",
-        "dae": "./data/SQUAD/squad_dae_embeddings.pt",
-        "cae": "./data/SQUAD/squad_contrastive_embeddings.pt",
+        "vae": os.path.join(output_dir, cfg["models"]["vae"]["dataset_file"]),
+        "dae": os.path.join(output_dir, cfg["models"]["dae"]["dataset_file"]),
+        "cae": os.path.join(output_dir, cfg["models"]["contrastive"]["dataset_file"]),
     }
 
 
