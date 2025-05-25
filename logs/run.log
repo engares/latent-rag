@@ -634,3 +634,8 @@ Training VAE | device=cuda | deterministic=False
 2025-05-25 18:14:55,321 [INFO] main: Running pipeline: |queries|=2 |docs|=1
 2025-05-25 18:14:59,688 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
 2025-05-25 18:15:03,566 [INFO] httpx: HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+2025-05-25 20:24:24,037 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 20:26:32,615 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 20:27:13,245 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 20:35:48,898 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 20:46:09,569 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)

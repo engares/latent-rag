@@ -301,21 +301,21 @@ models:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/SQUAD/squad_vae_embeddings.pt"          
+    dataset_path: "./data/SQUAD2/squad_vae_embeddings.pt"          
     checkpoint: "./models/checkpoints/vae_text.pth"
 
   dae:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/SQUAD/squad_dae_embeddings.pt"
+    dataset_path: "./data/SQUAD2/squad_dae_embeddings.pt"
     checkpoint: "./models/checkpoints/dae_text.pth"
 
   contrastive:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/SQUAD/squad_contrastive_embeddings.pt"
+    dataset_path: "./data/SQUAD2/squad_contrastive_embeddings.pt"
     checkpoint: "./models/checkpoints/contrastive_ae.pth"
 
 data:
