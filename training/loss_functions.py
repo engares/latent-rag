@@ -3,7 +3,6 @@
 import torch
 import torch.nn.functional as F
 
-
 ###############################################################################
 #  VAE                                                                        #
 ###############################################################################
@@ -17,17 +16,17 @@ def vae_loss(
     mu: torch.Tensor,
     logvar: torch.Tensor,
     *,
-    mse_reduction: str = "mean",   # "mean" o "sum"
-    beta: float = 1.0,             # β-VAE (β=1 → VAE clásico)
+    mse_reduction: str = "mean",   # "mean" or "sum"
+    beta: float = 1.0,             # β-VAE (β=1 → classic VAE)
 ) -> torch.Tensor:
-    """VAE loss = reconstruction + β·KL  (KL normalizado por batch).
+    """VAE loss = reconstruction + β·KL  (KL normalized by batch).
 
     Args:
-        x_reconstructed: output del decoder  ― shape [B, D]
-        x_target:        embeddings originales ― shape [B, D]
-        mu, logvar:      parámetros de la distribución latente ― shape [B, Z]
-        mse_reduction:   "mean" (recomendado) o "sum"
-        beta:            peso del término KL (β-VAE)
+        x_reconstructed: output from the decoder  ― shape [B, D]
+        x_target:        original embeddings ― shape [B, D]
+        mu, logvar:      parameters of the latent distribution ― shape [B, Z]
+        mse_reduction:   "mean" (recommended) or "sum"
+        beta:            weight of the KL term (β-VAE)
     """
     # ── 1. reconstruction error ─────────────────────────────────────────
     recon = F.mse_loss(x_reconstructed, x_target, reduction=mse_reduction)
@@ -47,13 +46,12 @@ def dae_loss(
     x_clean: torch.Tensor,
     reduction: str = "mean",
 ) -> torch.Tensor:
-    """Mean‑squared error para Denoising Auto‑Encoders."""
+    """Mean‑squared error for Denoising Auto‑Encoders."""
     return F.mse_loss(x_reconstructed, x_clean, reduction=reduction)
 
 ###############################################################################
 #  CONTRASTIVE                                                                #
 ###############################################################################
-
 
 def contrastive_loss(
     z_q: torch.Tensor,
@@ -62,10 +60,10 @@ def contrastive_loss(
     margin: float = 0.2,
     hard_negatives: bool = True,
 ) -> torch.Tensor:
-    """Triplet loss con selección de negativos dentro del batch.
+    """Triplet loss with negative selection within the batch.
 
-    Si `hard_negatives` es True, usa el negativo más cercano; de lo contrario,
-    permuta `z_pos` para obtener un negativo aleatorio.
+    If `hard_negatives` is True, uses the closest negative; otherwise,
+    permutes `z_pos` to obtain a random negative.
     """
     z_q = F.normalize(z_q, p=2, dim=1)
     z_pos = F.normalize(z_pos, p=2, dim=1)
@@ -73,7 +71,7 @@ def contrastive_loss(
     if hard_negatives:
         dist_mat = torch.cdist(z_q, z_pos, p=2)
         mask = torch.eye(dist_mat.size(0), dtype=torch.bool, device=z_q.device)
-        dist_mat = dist_mat.masked_fill(mask, float("inf"))  # ← corregido
+        dist_mat = dist_mat.masked_fill(mask, float("inf"))  # ← corrected
         neg_dist, _ = dist_mat.min(dim=1)
 
     else:

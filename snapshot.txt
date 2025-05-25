@@ -9,7 +9,10 @@
 │       └── system_prompt.txt
 ├── data/
 │   ├── data_processing.py
+│   ├── squad_contrastive_embeddings.pt
+│   ├── squad_dae_embeddings.pt
 │   ├── squad_loader.py
+│   ├── squad_vae_embeddings.pt
 │   ├── torch_datasets.py
 │   ├── uda_contrastive_embeddings.pt
 │   ├── uda_dae_embeddings.pt
@@ -40,6 +43,12 @@
 ├── save_snapshot.sh*
 ├── snapshot.txt
 ├── style_guide.md
+├── test/
+│   ├── test_evaluation.py
+│   ├── test_loss_functions.py
+│   ├── test_models.py
+│   ├── test_retrieval.py
+│   └── test_train_scripts.py
 ├── training/
 │   ├── loss_functions.py
 │   ├── train_cae.py
@@ -50,61 +59,10 @@
     ├── load_config.py
     └── training_utils.py
 
-11 directories, 37 files
+12 directories, 45 files
 
 
 ### File contents
-
-AUTORAG.code-workspace
-"""
-{
-	"folders": [
-		{
-			"path": "."
-		}
-	],
-	"settings": {}
-}
-"""
-
-README.md
-"""
-
-
-
-
-
-├── models/
-│   ├── base_autoencoder.py        # Clase abstracta
-│   ├── vae.py                     # Variational Autoencoder
-│   ├── dae.py                     # Denoising Autoencoder
-│   ├── contrastive_ae.py          # Autoencoder con contraste
-│
-├── training/
-│   ├── train_ae.py                # Rutinas de entrenamiento
-│   ├── loss_functions.py          # Pérdidas personalizadas
-│
-├── retrieval/
-│   ├── embedder.py                # Codificadores tradicionales y refinados
-│   ├── retriever.py               # Recuperación (BM25, DPR, embeddings comprimidos)
-│
-├── generation/
-│   ├── generator.py               # Integración con LLM vía API
-│
-├── evaluation/
-│   ├── retrieval_metrics.py                 # Métricas de recuperación y generación
-|   |_ autoencoder_metrics.py
-|   |_ generation_metrics.py
-│
-├── data/
-│   └── ...                        # Datasets y preprocessors
-│
-├── config/
-│   └── config.yaml                # Parámetros experimentales
-│
-├── main.py                        # Script principal para orquestar el flujo
-└── requirements.txt               # Dependencias
-"""
 
 config/config.yaml
 """
@@ -146,7 +104,7 @@ models:
 data:
   dataset: "squad"            #  "uda"  |  "squad"
   version: "v1"          #  v1, v2  ONly for squad
-  max_samples: None        #  optional, NNone to use all samples
+  max_samples:         #  optional, blankk to use all samples
   include_unanswerable: false   #  Only Squad
 
 training:
@@ -1294,14 +1252,17 @@ python-dotenv>=1.0.0
 
 # Optional CLI Enhancements
 rich>=13.0.0
+
+pytest 
 """
 
 retrieval/embedder.py
 """
 # retrieval/embedder.py
 
+from sentence_transformers import SentenceTransformer
 import torch
-from transformers import AutoTokenizer, AutoModel
+
 
 class EmbeddingCompressor:
     def __init__(
@@ -1312,31 +1273,39 @@ class EmbeddingCompressor:
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Modelo base de embeddings (ej. BERT, SBERT, DPR)
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-        self.model = AutoModel.from_pretrained(base_model_name).to(self.device)
-        self.model.eval()
+        # Load pretrained SBERT model (includes pooling + normalization)
+        self.model = SentenceTransformer(base_model_name, device=self.device)
 
-        # Autoencoder (inyectado externamente, puede ser VAE, DAE, etc.)
+        # Optional autoencoder for compression (VAE, DAE, etc.)
         self.autoencoder = autoencoder.to(self.device) if autoencoder else None
         if self.autoencoder:
             self.autoencoder.eval()
 
     def encode_text(self, texts: list[str], compress: bool = True) -> torch.Tensor:
+        """Returns SBERT embeddings, optionally compressed with an autoencoder.
+
+        Args:
+            texts: List of input strings to encode.
+            compress: Whether to apply the autoencoder (if available).
+
+        Returns:
+            A float32 tensor [N × D] on CPU.
+        """
         with torch.no_grad():
-            tokens = self.tokenizer(texts, padding=True, truncation=True, return_tensors='pt').to(self.device)
-            outputs = self.model(**tokens)
-            cls_embeddings = outputs.last_hidden_state[:, 0, :]  # Representación [CLS]
+            embeddings = self.model.encode(
+                texts,
+                batch_size=64,
+                convert_to_tensor=True,
+                normalize_embeddings=True
+            ).to(self.device)
 
             if self.autoencoder and compress:
-                if hasattr(self.autoencoder, "encode"):
-                    encoded = self.autoencoder.encode(cls_embeddings)
-                    if isinstance(encoded, tuple):  # VAE (mu, logvar)
-                        return encoded[0].cpu()     # usamos mu
-                    return encoded.cpu()
-                else:
-                    raise ValueError("El autoencoder debe implementar el método 'encode'")
-            return cls_embeddings.cpu()
+                encoded = self.autoencoder.encode(embeddings)
+                if isinstance(encoded, tuple):  # VAE returns (mu, logvar)
+                    encoded = encoded[0]        # use mean as latent code
+                return encoded.cpu()
+
+            return embeddings.cpu()
 
 """
 
@@ -1759,6 +1728,334 @@ class ContrastiveAutoencoder(nn.Module):
 
 """
 
+test/test_evaluation.py
+"""
+import pytest
+import torch
+import numpy as np
+from evaluation.retrieval_metrics import recall_at_k, mrr, ndcg_at_k, evaluate_retrieval
+from evaluation.generation_metrics import compute_bleu, compute_rouge_l, evaluate_generation_bootstrap
+from evaluation.autoencoder_metrics import evaluate_reconstruction_loss
+
+# ------------------- Retrieval Metrics -------------------
+def test_recall_at_k():
+    retrieved = [1, 2, 3, 4, 5]
+    relevant = [3, 4, 6]
+    assert recall_at_k(retrieved, relevant, k=3) == 1 / 3, "Recall@k mismatch"
+
+def test_mrr():
+    retrieved = [1, 2, 3, 4, 5]
+    relevant = [3, 4, 6]
+    assert mrr(retrieved, relevant) == 1 / 3, "MRR mismatch"
+
+def test_ndcg_at_k():
+    retrieved = [1, 2, 3, 4, 5]
+    relevant = [3, 4, 6]
+    assert np.isclose(ndcg_at_k(retrieved, relevant, k=3), 0.23463936301137822, atol=1e-6), "NDCG@k mismatch"
+
+def test_evaluate_retrieval():
+    retrieved_batch = [[1, 2, 3], [4, 5, 6]]
+    relevant_batch = [[3, 4], [5, 6]]
+    metrics = ["recall@2", "mrr"]
+    results = evaluate_retrieval(retrieved_batch, relevant_batch, metrics)
+    assert "recall@2" in results and "mrr" in results, "Evaluation metrics missing"
+
+# ------------------- Generation Metrics -------------------
+def test_compute_bleu():
+    refs = ["this is a test"]
+    cands = ["this is a test"]
+    assert np.isclose(compute_bleu(cands, refs), 100.0, atol=1e-6), "BLEU mismatch"
+
+def test_compute_rouge_l():
+    refs = ["this is a test"]
+    cands = ["this is a test"]
+    assert compute_rouge_l(cands, refs) == 100.0, "ROUGE-L mismatch"
+
+def test_evaluate_generation_bootstrap():
+    refs = ["this is a test"] * 30
+    cands = ["this is a test"] * 30
+    results = evaluate_generation_bootstrap(refs, cands, metrics=["BLEU", "ROUGE-L"], n_samples=100)
+    assert "BLEU" in results and "ROUGE-L" in results, "Bootstrap metrics missing"
+
+# ------------------- Autoencoder Metrics -------------------
+def test_evaluate_reconstruction_loss():
+    x = torch.randn(10, 16)
+    x_reconstructed = x + torch.randn(10, 16) * 0.1
+    loss = evaluate_reconstruction_loss(x, x_reconstructed, reduction="mean")
+    assert loss > 0, "Reconstruction loss should be positive"
+
+"""
+
+test/test_loss_functions.py
+"""
+import torch
+import pytest
+from training.loss_functions import vae_loss, dae_loss, contrastive_loss
+
+# ------------------- VAE Loss -------------------
+def test_vae_loss_basic():
+    x_reconstructed = torch.randn(8, 16)
+    x_target = torch.randn(8, 16)
+    mu = torch.zeros(8, 4)
+    logvar = torch.zeros(8, 4)
+    loss = vae_loss(x_reconstructed, x_target, mu, logvar)
+    assert loss.shape == (), "VAE loss should be a scalar"
+    assert loss.item() >= 0
+
+def test_vae_loss_beta():
+    x_reconstructed = torch.randn(4, 10)
+    x_target = torch.randn(4, 10)
+    mu = torch.randn(4, 3)
+    logvar = torch.randn(4, 3)
+    loss1 = vae_loss(x_reconstructed, x_target, mu, logvar, beta=0.5)
+    loss2 = vae_loss(x_reconstructed, x_target, mu, logvar, beta=2.0)
+    assert loss1 != loss2
+
+# ------------------- DAE Loss -------------------
+def test_dae_loss_basic():
+    x_reconstructed = torch.randn(5, 7)
+    x_clean = torch.randn(5, 7)
+    loss = dae_loss(x_reconstructed, x_clean)
+    assert loss.shape == (), "DAE loss should be a scalar"
+    assert loss.item() >= 0
+
+# ------------------- Contrastive Loss -------------------
+def test_contrastive_loss_hard_negatives():
+    z_q = torch.randn(6, 8)
+    z_pos = torch.randn(6, 8)
+    loss = contrastive_loss(z_q, z_pos, hard_negatives=True)
+    assert loss.shape == (), "Contrastive loss should be a scalar"
+    assert loss.item() >= 0
+
+def test_contrastive_loss_random_negatives():
+    z_q = torch.randn(6, 8)
+    z_pos = torch.randn(6, 8)
+    loss = contrastive_loss(z_q, z_pos, hard_negatives=False)
+    assert loss.shape == (), "Contrastive loss should be a scalar"
+    assert loss.item() >= 0
+
+def test_contrastive_loss_margin_effect():
+    z_q = torch.randn(4, 5)
+    z_pos = torch.randn(4, 5)
+    loss1 = contrastive_loss(z_q, z_pos, margin=0.1)
+    loss2 = contrastive_loss(z_q, z_pos, margin=1.0)
+    assert loss1 != loss2
+
+"""
+
+test/test_models.py
+"""
+import pytest
+import torch
+from models.variational_autoencoder import VariationalAutoencoder
+from models.denoising_autoencoder import DenoisingAutoencoder
+from models.contrastive_autoencoder import ContrastiveAutoencoder
+
+# ------------------- Variational Autoencoder -------------------
+def test_variational_autoencoder():
+    model = VariationalAutoencoder(input_dim=16, latent_dim=4, hidden_dim=8)
+    x = torch.randn(2, 16)
+    x_reconstructed, mu, logvar = model(x)
+
+    assert x_reconstructed.shape == x.shape, "Reconstructed output shape mismatch"
+    assert mu.shape == (2, 4), "Latent mean shape mismatch"
+    assert logvar.shape == (2, 4), "Latent logvar shape mismatch"
+
+# ------------------- Denoising Autoencoder -------------------
+def test_denoising_autoencoder():
+    model = DenoisingAutoencoder(input_dim=16, latent_dim=4, hidden_dim=8)
+    x_noisy = torch.randn(2, 16)
+    x_reconstructed = model(x_noisy)
+
+    assert x_reconstructed.shape == x_noisy.shape, "Reconstructed output shape mismatch"
+
+# ------------------- Contrastive Autoencoder -------------------
+def test_contrastive_autoencoder():
+    model = ContrastiveAutoencoder(input_dim=16, latent_dim=4, hidden_dim=8)
+    x = torch.randn(2, 16)
+    x_reconstructed, z = model(x)
+
+    assert x_reconstructed.shape == x.shape, "Reconstructed output shape mismatch"
+    assert z.shape == (2, 4), "Latent embedding shape mismatch"
+
+    # Test normalized embeddings
+    z_norm = torch.norm(z, p=2, dim=-1)
+    assert torch.allclose(z_norm, torch.ones_like(z_norm), atol=1e-6), "Latent embeddings are not normalized"
+
+"""
+
+test/test_retrieval.py
+"""
+import pytest
+import torch
+from retrieval.embedder import EmbeddingCompressor
+from retrieval.retriever import compute_similarity, retrieve_top_k
+
+# ------------------- EmbeddingCompressor -------------------
+def test_embedding_compressor_without_autoencoder():
+    embedder = EmbeddingCompressor()
+    texts = ["This is a test.", "Another test."]
+    embeddings = embedder.encode_text(texts, compress=False)
+
+    assert embeddings.shape == (2, 384), "Embedding shape mismatch"
+
+def test_embedding_compressor_with_autoencoder():
+    class DummyAutoencoder(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+        def encode(self, x):
+            return x * 0.5
+
+    autoencoder = DummyAutoencoder()
+    embedder = EmbeddingCompressor(autoencoder=autoencoder)
+    texts = ["This is a test.", "Another test."]
+    embeddings = embedder.encode_text(texts, compress=True)
+
+    assert embeddings.shape == (2, 384), "Compressed embedding shape mismatch"
+
+# ------------------- Retriever -------------------
+def test_compute_similarity():
+    queries = torch.randn(2, 384)
+    docs = torch.randn(5, 384)
+
+    cosine_sim = compute_similarity(queries, docs, metric="cosine")
+    assert cosine_sim.shape == (2, 5), "Cosine similarity shape mismatch"
+
+    euclidean_sim = compute_similarity(queries, docs, metric="euclidean")
+    assert euclidean_sim.shape == (2, 5), "Euclidean similarity shape mismatch"
+
+    mahalanobis_sim = compute_similarity(queries, docs, metric="mahalanobis")
+    assert mahalanobis_sim.shape == (2, 5), "Mahalanobis similarity shape mismatch"
+
+def test_retrieve_top_k():
+    query = torch.randn(384)
+    docs = torch.randn(10, 384)
+    doc_texts = [f"Document {i}" for i in range(10)]
+
+    top_k = retrieve_top_k(query, docs, doc_texts, k=3, metric="cosine")
+    assert len(top_k) == 3, "Top-k retrieval length mismatch"
+    assert all(isinstance(item, tuple) and len(item) == 2 for item in top_k), "Top-k format mismatch"
+
+"""
+
+test/test_train_scripts.py
+"""
+import pytest
+import torch
+import types
+from training import train_vae, train_dae, train_cae
+
+class DummyLogger:
+    def __init__(self):
+        self.main = self
+        self.train = self
+    def info(self, *args, **kwargs):
+        pass
+
+class DummyDataset(torch.utils.data.Dataset):
+    def __init__(self, n=10, d=8):
+        self.n = n; self.d = d
+    def __len__(self): return self.n
+    def __getitem__(self, idx):
+        return {"input": torch.randn(self.d), "target": torch.randn(self.d), "x": torch.randn(self.d), "y": torch.randn(self.d), "q": torch.randn(self.d), "p": torch.randn(self.d), "n": torch.randn(self.d)}
+
+class DummyVAE(torch.nn.Module):
+    def __init__(self, input_dim, latent_dim, hidden_dim):
+        super().__init__()
+        self.dummy_param = torch.nn.Parameter(torch.zeros(1))
+    def forward(self, x):
+        out = x + self.dummy_param
+        return out, torch.zeros(x.size(0), 2), torch.zeros(x.size(0), 2)
+
+class DummyDAE(torch.nn.Module):
+    def __init__(self, input_dim, latent_dim, hidden_dim):
+        super().__init__()
+        self.dummy_param = torch.nn.Parameter(torch.zeros(1))
+    def forward(self, x):
+        return x + self.dummy_param
+
+class DummyCAE(torch.nn.Module):
+    def __init__(self, input_dim, latent_dim, hidden_dim):
+        super().__init__()
+        self.dummy_param = torch.nn.Parameter(torch.zeros(1))
+    def encode(self, x):
+        return x + self.dummy_param
+    def forward(self, x):
+        return x + self.dummy_param
+
+def patch_train_vae(monkeypatch):
+    monkeypatch.setattr("training.train_vae.EmbeddingVAEDataset", lambda path: DummyDataset())
+    monkeypatch.setattr("training.train_vae.VariationalAutoencoder", DummyVAE)
+    monkeypatch.setattr("training.train_vae.torch.save", lambda *a, **k: None)
+    monkeypatch.setattr("training.train_vae.os.makedirs", lambda *a, **k: None)
+    monkeypatch.setattr("utils.data_utils.split_dataset", lambda ds, val_split: (ds, ds))
+
+def patch_train_dae(monkeypatch):
+    monkeypatch.setattr("training.train_dae.EmbeddingDAEDataset", lambda path: DummyDataset())
+    monkeypatch.setattr("training.train_dae.DenoisingAutoencoder", DummyDAE)
+    monkeypatch.setattr("training.train_dae.torch.save", lambda *a, **k: None)
+    monkeypatch.setattr("training.train_dae.os.makedirs", lambda *a, **k: None)
+    monkeypatch.setattr("utils.data_utils.split_dataset", lambda ds, val_split: (ds, ds))
+
+def patch_train_cae(monkeypatch):
+    monkeypatch.setattr("training.train_cae.EmbeddingTripletDataset", lambda path: DummyDataset())
+    monkeypatch.setattr("training.train_cae.ContrastiveAutoencoder", DummyCAE)
+    monkeypatch.setattr("training.train_cae.torch.save", lambda *a, **k: None)
+    monkeypatch.setattr("training.train_cae.os.makedirs", lambda *a, **k: None)
+    monkeypatch.setattr("utils.data_utils.split_dataset", lambda ds, val_split: (ds, ds))
+
+def test_train_vae_runs(monkeypatch):
+    patch_train_vae(monkeypatch)
+    train_vae.train_vae(
+        dataset_path="dummy",
+        input_dim=8,
+        latent_dim=2,
+        hidden_dim=4,
+        batch_size=2,
+        epochs=1,
+        lr=1e-3,
+        model_save_path="/tmp/vae.pth",
+        val_split=0.2,
+        patience=1,
+        device="cpu",
+    )
+
+def test_train_dae_runs(monkeypatch):
+    patch_train_dae(monkeypatch)
+    train_dae.train_dae(
+        dataset_path="dummy",
+        input_dim=8,
+        latent_dim=2,
+        hidden_dim=4,
+        batch_size=2,
+        epochs=1,
+        lr=1e-3,
+        model_save_path="/tmp/dae.pth",
+        val_split=0.2,
+        patience=1,
+        device="cpu",
+        logger=DummyLogger(),
+    )
+
+def test_train_cae_runs(monkeypatch):
+    patch_train_cae(monkeypatch)
+    train_cae.train_cae(
+        dataset_path="dummy",
+        input_dim=8,
+        latent_dim=2,
+        hidden_dim=4,
+        batch_size=2,
+        epochs=1,
+        lr=1e-3,
+        model_save_path="/tmp/cae.pth",
+        val_split=0.2,
+        patience=1,
+        device="cpu",
+        logger=DummyLogger(),
+    )
+
+"""
+
 training/loss_functions.py
 """
 # /training/loss_functions.py
@@ -1766,38 +2063,39 @@ training/loss_functions.py
 import torch
 import torch.nn.functional as F
 
-
 ###############################################################################
 #  VAE                                                                        #
 ###############################################################################
 
+import torch
+import torch.nn.functional as F
+
 def vae_loss(
     x_reconstructed: torch.Tensor,
-    x: torch.Tensor,
+    x_target: torch.Tensor,
     mu: torch.Tensor,
     logvar: torch.Tensor,
-    reduction: str = "sum",
+    *,
+    mse_reduction: str = "mean",   # "mean" or "sum"
+    beta: float = 1.0,             # β-VAE (β=1 → classic VAE)
 ) -> torch.Tensor:
-    """Pérdida estándar VAE = mse + KL.
+    """VAE loss = reconstruction + β·KL  (KL normalized by batch).
 
-    Parámetros
-    ----------
-    x_reconstructed : Tensor
-        Salida del decodificador.
-    x : Tensor
-        Embedding original (target).
-    mu, logvar : Tensor
-        Parámetros de la distribución latente.
-    reduction : str
-        Reducción a emplear en MSE ("sum" o "mean").
+    Args:
+        x_reconstructed: output from the decoder  ― shape [B, D]
+        x_target:        original embeddings ― shape [B, D]
+        mu, logvar:      parameters of the latent distribution ― shape [B, Z]
+        mse_reduction:   "mean" (recommended) or "sum"
+        beta:            weight of the KL term (β-VAE)
     """
-    # Reconstrucción (MSE)
-    recon_loss = F.mse_loss(x_reconstructed, x, reduction=reduction)
+    # ── 1. reconstruction error ─────────────────────────────────────────
+    recon = F.mse_loss(x_reconstructed, x_target, reduction=mse_reduction)
 
-    # Divergencia KL
-    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    # ── 2. KL (normalized) ───────────────────────────────────────────────
+    #   KL(q(z|x) || N(0,1))  =  -½ Σ_i (1 + logσ²_i − μ²_i − σ²_i)
+    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean()  # ← .mean() ≈ /B/Z
 
-    return recon_loss + kl_loss
+    return recon + beta * kl
 
 ###############################################################################
 #  DAE                                                                        #
@@ -1808,13 +2106,12 @@ def dae_loss(
     x_clean: torch.Tensor,
     reduction: str = "mean",
 ) -> torch.Tensor:
-    """Mean‑squared error para Denoising Auto‑Encoders."""
+    """Mean‑squared error for Denoising Auto‑Encoders."""
     return F.mse_loss(x_reconstructed, x_clean, reduction=reduction)
 
 ###############################################################################
 #  CONTRASTIVE                                                                #
 ###############################################################################
-
 
 def contrastive_loss(
     z_q: torch.Tensor,
@@ -1823,10 +2120,10 @@ def contrastive_loss(
     margin: float = 0.2,
     hard_negatives: bool = True,
 ) -> torch.Tensor:
-    """Triplet loss con selección de negativos dentro del batch.
+    """Triplet loss with negative selection within the batch.
 
-    Si `hard_negatives` es True, usa el negativo más cercano; de lo contrario,
-    permuta `z_pos` para obtener un negativo aleatorio.
+    If `hard_negatives` is True, uses the closest negative; otherwise,
+    permutes `z_pos` to obtain a random negative.
     """
     z_q = F.normalize(z_q, p=2, dim=1)
     z_pos = F.normalize(z_pos, p=2, dim=1)
@@ -1834,7 +2131,7 @@ def contrastive_loss(
     if hard_negatives:
         dist_mat = torch.cdist(z_q, z_pos, p=2)
         mask = torch.eye(dist_mat.size(0), dtype=torch.bool, device=z_q.device)
-        dist_mat = dist_mat.masked_fill(mask, float("inf"))  # ← corregido
+        dist_mat = dist_mat.masked_fill(mask, float("inf"))  # ← corrected
         neg_dist, _ = dist_mat.min(dim=1)
 
     else:
@@ -1848,30 +2145,43 @@ def contrastive_loss(
 
 training/train_cae.py
 """
-# training/train_cae.py – Contrastive Auto‑Encoder con hard‑negative mining y validación
+# training/train_cae.py ― Contrastive Auto-Encoder with negative mining and validation
 
 from __future__ import annotations
-
-import argparse
-import os
+import argparse, os, math
 from typing import Optional
 
 import torch
 from torch.utils.data import DataLoader
+from torch.nn.utils import clip_grad_norm_
 
 from data.torch_datasets import EmbeddingTripletDataset
 from models.contrastive_autoencoder import ContrastiveAutoencoder
-from training.loss_functions import contrastive_loss
+from training.loss_functions import contrastive_loss        # in-batch mining
 from utils.load_config import load_config, init_logger
 from utils.training_utils import set_seed, resolve_device
-from utils.data_utils import prepare_datasets   
+from utils.data_utils import prepare_datasets, split_dataset
 from dotenv import load_dotenv
 
-###############################################################################
-#  TRAINING FUNCTION                                                         #
-###############################################################################
+# --------------------------------------------------------------------------- #
+#  AUX                                                                       #
+# --------------------------------------------------------------------------- #
+
+def _build_optimizer(model: torch.nn.Module, lr: float, weight_decay: float) -> torch.optim.Optimizer:
+    return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+
+def _build_scheduler(optim: torch.optim.Optimizer, patience: int, factor: float = 0.5):
+    # Reduce LR if val_loss does not improve for `patience` consecutive epochs
+    return torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim, mode="min", factor=factor, patience=max(1, patience // 2)
+    )
+
+# --------------------------------------------------------------------------- #
+#  TRAINING LOOP                                                             #
+# --------------------------------------------------------------------------- #
 
 def train_cae(
+    *,
     dataset_path: str,
     input_dim: int,
     latent_dim: int,
@@ -1882,129 +2192,149 @@ def train_cae(
     model_save_path: str,
     logger,
     hard_negatives: bool = True,
+    margin: float = 0.2,
     val_split: float = 0.1,
     patience: Optional[int] = 5,
-    margin: float = 0.2,
+    min_delta: float = 0.003,                   # 0.3% relative improvement
+    weight_decay: float = 1e-4,
+    clip_grad_norm: float = 1.0,                # 0 = disable
     device: Optional[str] = None,
-):
-    """Train a contrastive auto‑encoder with optional hard‑negative mining."""
-    device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[INFO] Training CAE on {device} | hard_negatives={hard_negatives} | val_split={val_split}")
+) -> None:
 
-    from utils.data_utils import split_dataset  # local import to avoid circular dep.
+    device = device or resolve_device()
+    log = logger.train if hasattr(logger, "train") else logger
 
+    log.info("CAE | device=%s | hard_negatives=%s | margin=%.3f", device, hard_negatives, margin)
 
-    print(f"[DEBUG] Loading file: {dataset_path}")
-    data = torch.load(dataset_path, map_location="cpu")
-    print(f"[DEBUG] Keys in file: {list(data.keys())}")
-
-
+    # ---------------- Dataset ---------------------------
     full_ds = EmbeddingTripletDataset(dataset_path)
     train_ds, val_ds = split_dataset(full_ds, val_split=val_split)
     dl_train = DataLoader(train_ds, batch_size=batch_size, shuffle=True,  drop_last=True)
     dl_val   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, drop_last=False)
 
+    # ---------------- Model & Opt -----------------------
     model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optim = torch.optim.Adam(model.parameters(), lr=lr)
+    optim = _build_optimizer(model, lr, weight_decay)
+    scheduler = _build_scheduler(optim, patience or 4)
 
-    best_val, no_improve = float("inf"), 0
+    best_val, epochs_no_improve = math.inf, 0
+
+    # Triplet loss native
+    triplet_fn = torch.nn.TripletMarginLoss(margin=margin, p=2)
 
     for epoch in range(1, epochs + 1):
-        # ---------------- TRAIN -------------------------------------------
+        # ---------------- Train -------------------------
         model.train(); running = 0.0
         for batch in dl_train:
-            q = batch["q"].to(device)
-            p = batch["p"].to(device)
+            z_q  = model.encode(batch["q"].to(device))
+            z_p  = model.encode(batch["p"].to(device))
+            z_n  = model.encode(batch["n"].to(device))
+
+            if hard_negatives:
+                loss = contrastive_loss(z_q, z_p, margin=margin, hard_negatives=True)
+            else:
+                loss = triplet_fn(z_q, z_p, z_n)
 
             optim.zero_grad()
-            z_q  = model.encode(q)
-            z_pos = model.encode(p)
-            loss = contrastive_loss(z_q, z_pos, margin=margin, hard_negatives=hard_negatives)
-            loss.backward(); optim.step()
-            running += loss.item() * q.size(0)
+            loss.backward()
+            if clip_grad_norm > 0:
+                clip_grad_norm_(model.parameters(), clip_grad_norm)
+            optim.step()
+            running += loss.item() * z_q.size(0)
+
         train_loss = running / len(train_ds)
 
-        # ---------------- VALIDATION --------------------------------------
+        # ---------------- Validation --------------------
         model.eval(); val_running = 0.0
         with torch.no_grad():
             for batch in dl_val:
-                q = batch["q"].to(device)
-                p = batch["p"].to(device)
-                z_q  = model.encode(q)
-                z_pos = model.encode(p)
-                vloss = contrastive_loss(z_q, z_pos, margin=margin, hard_negatives=hard_negatives)
-                val_running += vloss.item() * q.size(0)
+                z_q  = model.encode(batch["q"].to(device))
+                z_p  = model.encode(batch["p"].to(device))
+                z_n  = model.encode(batch["n"].to(device))
+
+                if hard_negatives:
+                    vloss = contrastive_loss(z_q, z_p, margin=margin, hard_negatives=True)
+                else:
+                    vloss = triplet_fn(z_q, z_p, z_n)
+
+                val_running += vloss.item() * z_q.size(0)
         val_loss = val_running / len(val_ds)
 
-        print(f"[Epoch {epoch:02d}/{epochs}] train={train_loss:.6f} | val={val_loss:.6f}")
-        logger.train.info("[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss)
+        log.info("[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss)
+        scheduler.step(val_loss)
 
-        # ---------------- EARLY‑STOP --------------------------------------
-        if val_loss < best_val - 1e-4:
-            best_val, no_improve = val_loss, 0
+        # ---------------- Early stop --------------------
+        rel_improve = (best_val - val_loss) / best_val if best_val < math.inf else 1.0
+        if rel_improve > min_delta:
+            best_val, epochs_no_improve = val_loss, 0
             os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
             torch.save(model.state_dict(), model_save_path)
-            logger.train.info("New best val_loss → checkpoint %s", model_save_path)
+            print(f"  -> New best val_loss. Checkpoint saved at {model_save_path}")
+            logger.train.info("New best val_loss: %.6f → checkpoint %s", best_val, model_save_path)
         else:
-            no_improve += 1
-            if patience and no_improve >= patience:
+            epochs_no_improve += 1
+            if patience and epochs_no_improve >= patience:
                 print("[EARLY STOP] No improvement in validation.")
                 logger.train.info("[EARLY STOP] No improvement in validation.")
                 break
 
-    print(f"[DONE] best_val_loss = {best_val:.6f}")
+    print(f"[DONE] Best val_loss = {best_val:.6f}")
     logger.main.info("[DONE] Best val_loss = %.6f", best_val)
+    logger.main.info("")
 
-###############################################################################
+# --------------------------------------------------------------------------- #
 #  CLI                                                                       #
-###############################################################################
+# --------------------------------------------------------------------------- #
 
 if __name__ == "__main__":
     load_dotenv()
 
-    parser = argparse.ArgumentParser(description="Train Contrastive Auto‑Encoder (CAE)")
-    parser.add_argument("--config", default="./config/config.yaml")
-    parser.add_argument("--dataset", choices=["uda", "squad"], help="Override dataset in config.yaml")
-    parser.add_argument("--epochs", type=int)
-    parser.add_argument("--lr", type=float)
-    parser.add_argument("--save_path")
-    parser.add_argument("--batch_size", type=int)
-    parser.add_argument("--val_split", type=float, default=0.1)
-    parser.add_argument("--patience", type=int, default=5)
-    parser.add_argument("--no-hard-negatives", action="store_true")
-    parser.add_argument("--margin", type=float, default=0.2)
-    args = parser.parse_args()
+    p = argparse.ArgumentParser(description="Train Contrastive Auto-Encoder (CAE)")
+    p.add_argument("--config", default="./config/config.yaml")
+    p.add_argument("--dataset", choices=["uda", "squad"], help="Override YAML dataset")
+    p.add_argument("--epochs",  type=int)
+    p.add_argument("--batch_size", type=int)
+    p.add_argument("--lr",      type=float)
+    p.add_argument("--weight_decay", type=float, default=1e-4)
+    p.add_argument("--clip_grad", type=float, default=1.0)
+    p.add_argument("--margin",  type=float, default=0.2)
+    p.add_argument("--val_split", type=float, default=0.1)
+    p.add_argument("--patience", type=int, default=5)
+    p.add_argument("--no-hard-negatives", action="store_true")
+    p.add_argument("--save_path")
+    args = p.parse_args()
 
-    # ---------------- CONFIG & LOGGING -----------------------------------
+    # ---------- Config & logging -----------------------------------------
     cfg       = load_config(args.config)
     train_cfg = cfg.get("training", {})
-    model_cfg = cfg.get("models", {}).get("contrastive", {})
+    model_cfg = cfg["models"]["contrastive"]
     log       = init_logger(cfg["logging"])
 
-    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False), logger=log.train)
-    device = resolve_device(train_cfg.get("device"))
+    set_seed(train_cfg.get("seed", 42), train_cfg.get("deterministic", False), logger=log.main)
 
-    # ---------------- DATASET PATHS --------------------------------------
-    dataset_path = prepare_datasets(cfg, variant="cae", dataset_override=args.dataset)
+    # ---------- Dataset ---------------------------------------------------
+    ds_path = prepare_datasets(cfg, variant="cae", dataset_override=args.dataset)
 
-
-    # ---------------- TRAINING ------------------------------------------
-    train_cae(
-        dataset_path=dataset_path,
-        input_dim=model_cfg.get("input_dim", 384),
-        latent_dim=model_cfg.get("latent_dim", 64),
-        hidden_dim=model_cfg.get("hidden_dim", 512),
-        batch_size=args.batch_size or train_cfg.get("batch_size", 256),
-        epochs=args.epochs or train_cfg.get("epochs", 20),
-        lr=float(args.lr) if args.lr is not None else float(train_cfg.get("learning_rate", 1e-3)),
-        model_save_path=args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/contrastive_ae.pth"),
-        hard_negatives=not args.no_hard_negatives,
-        val_split=args.val_split,
-        patience=None if args.patience == 0 else args.patience,
-        margin=args.margin,
-        device=device,
-        logger=log,
+    # ---------- Hparams final ---------------------------------------------
+    hparams = dict(
+        dataset_path = ds_path,
+        input_dim    = model_cfg.get("input_dim", 384),
+        latent_dim   = model_cfg.get("latent_dim", 64),
+        hidden_dim   = model_cfg.get("hidden_dim", 512),
+        batch_size   = args.batch_size or train_cfg.get("batch_size", 256),
+        epochs       = args.epochs or train_cfg.get("epochs", 20),
+        lr           = args.lr or float(train_cfg.get("learning_rate", 1e-3)),
+        weight_decay = args.weight_decay,
+        clip_grad_norm = args.clip_grad,
+        margin       = args.margin,
+        hard_negatives = not args.no_hard_negatives,
+        val_split    = args.val_split,
+        patience     = None if args.patience == 0 else args.patience,
+        model_save_path = args.save_path or model_cfg.get("checkpoint", "./models/checkpoints/contrastive_ae.pth"),
+        logger       = log,
     )
+
+    train_cae(**hparams)
 
 """
 
@@ -2230,7 +2560,7 @@ def train_vae(
             x_tar = batch["target"].to(device)
             optim.zero_grad()
             x_rec, mu, logvar = model(x_in)
-            loss = vae_loss(x_rec, x_tar, mu, logvar, reduction="mean")
+            loss = vae_loss(x_rec, x_tar, mu, logvar, mse_reduction="mean")
             loss.backward(); optim.step()
             running += loss.item() * x_in.size(0)
         train_loss = running / len(train_ds)
@@ -2242,7 +2572,7 @@ def train_vae(
                 x_in  = batch["input"].to(device)
                 x_tar = batch["target"].to(device)
                 x_rec, mu, logvar = model(x_in)
-                vloss = vae_loss(x_rec, x_tar, mu, logvar, reduction="mean")
+                vloss = vae_loss(x_rec, x_tar, mu, logvar, mse_reduction="mean")
                 val_running += vloss.item() * x_in.size(0)
         val_loss = val_running / len(val_ds)
 
