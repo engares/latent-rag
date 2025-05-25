@@ -262,7 +262,7 @@ def _prepare_uda(cfg: dict) -> Dict[str, str]:
 def _prepare_squad(cfg: dict) -> Dict[str, str]:
     data_cfg = cfg["data"]
     common = dict(
-        output_dir="./data/SQUAD",
+        output_dir="./data/SQUAD/",
         max_samples=data_cfg.get("max_samples"),
         base_model_name=cfg["embedding_model"]["name"],
         noise_std=0.05,
@@ -296,7 +296,7 @@ def prepare_datasets(
     variant = variant.lower()
     assert variant in {"vae", "dae", "cae"}, "variant must be vae, dae or cae"
 
-    ds_name = (dataset_override or cfg.get("data", {}).get("dataset", "uda")).lower()
+    ds_name = (dataset_override or cfg.get("data", {}).get("dataset", "squad")).lower()
     if ds_name == "squad":
         paths = _prepare_squad(cfg)
     elif ds_name == "uda":
