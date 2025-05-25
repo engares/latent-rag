@@ -8,15 +8,17 @@
 │   └── prompts/
 │       └── system_prompt.txt
 ├── data/
+│   ├── SQUAD/
+│   │   ├── squad_contrastive_embeddings.pt
+│   │   ├── squad_dae_embeddings.pt
+│   │   └── squad_vae_embeddings.pt
+│   ├── UDA/
+│   │   ├── uda_contrastive_embeddings.pt
+│   │   ├── uda_dae_embeddings.pt
+│   │   └── uda_vae_embeddings.pt
 │   ├── data_processing.py
-│   ├── squad_contrastive_embeddings.pt
-│   ├── squad_dae_embeddings.pt
 │   ├── squad_loader.py
-│   ├── squad_vae_embeddings.pt
-│   ├── torch_datasets.py
-│   ├── uda_contrastive_embeddings.pt
-│   ├── uda_dae_embeddings.pt
-│   └── uda_vae_embeddings.pt
+│   └── torch_datasets.py
 ├── evaluation/
 │   ├── autoencoder_metrics.py
 │   ├── generation_metrics.py
@@ -44,6 +46,7 @@
 ├── snapshot.txt
 ├── style_guide.md
 ├── test/
+│   ├── test_data_processing.py
 │   ├── test_evaluation.py
 │   ├── test_loss_functions.py
 │   ├── test_models.py
@@ -59,10 +62,25 @@
     ├── load_config.py
     └── training_utils.py
 
-12 directories, 45 files
+14 directories, 46 files
 
 
 ### File contents
+
+AUTORAG.code-workspace
+"""
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}
+"""
+
+README.md
+"""
 
 config/config.yaml
 """
@@ -84,21 +102,21 @@ models:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/uda_vae_embeddings.pt"          
+    dataset_path: "./data/SQUAD/squad_vae_embeddings.pt"          
     checkpoint: "./models/checkpoints/vae_text.pth"
 
   dae:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/uda_dae_embeddings.pt"          
+    dataset_path: "./data/SQUAD/squad_dae_embeddings.pt"
     checkpoint: "./models/checkpoints/dae_text.pth"
 
   contrastive:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512
-    dataset_path: "./data/uda_contrastive_embeddings.pt"  
+    dataset_path: "./data/SQUAD/squad_contrastive_embeddings.pt"
     checkpoint: "./models/checkpoints/contrastive_ae.pth"
 
 data:
@@ -125,7 +143,7 @@ generation:
   model: "gpt-4o-mini"
   temperature: 0.3
   max_tokens: 256
-  system_prompt_path: "./config/prompts/system_prompts.txt"
+  system_prompt_path: "./config/prompts/system_prompt.txt"
 
 
 evaluation:
@@ -190,30 +208,6 @@ def build_contrastive_pairs(dataset, max_negatives=1) -> List[Dict]:
         for neg in negs:
             pairs.append({"query": q, "positive": pos, "negative": neg})
     return pairs
-
-def load_uda(split="train", max_samples=5000):
-    print("[INFO] Loading UDA benchmark dataset...")
-    uda = load_dataset("osunlp/uda", split=split)
-    return uda.select(range(min(max_samples, len(uda))))
-
-if __name__ == "__main__":
-    # Load base data
-    data = load_uda(split="train", max_samples=1000)
-    texts = [clean_text(p["text"]) for row in data for p in row["positive_passages"][:1]]
-
-    # Generate DAE data
-    dae_data = build_dae_dataset(texts)
-    with open("./data/uda_dae_train.jsonl", "w", encoding="utf-8") as f:
-        for item in dae_data:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
-
-    # Generate contrastive pairs
-    contrastive = build_contrastive_pairs(data, max_negatives=1)
-    with open("./data/uda_contrastive_train.jsonl", "w", encoding="utf-8") as f:
-        for item in contrastive:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
-
-    print("[INFO] Dataset files written to ./data/")
 
 """
 
@@ -1728,6 +1722,126 @@ class ContrastiveAutoencoder(nn.Module):
 
 """
 
+test/test_data_processing.py
+"""
+import unittest
+from data.data_processing import clean_text, add_noise, build_dae_dataset, build_contrastive_pairs
+import torch
+
+class TestDataProcessing(unittest.TestCase):
+
+    def test_clean_text(self):
+        self.assertEqual(clean_text("  Hello   World  "), "Hello World")
+        self.assertEqual(clean_text("\nHello\tWorld\n"), "Hello World")
+
+    def test_add_noise(self):
+        text = "This is a test sentence"
+        noisy_text = add_noise(text, removal_prob=0.5, swap_prob=0.5)
+        self.assertNotEqual(text, noisy_text)  # Ensure noise is added
+
+    def test_build_dae_dataset(self):
+        samples = ["This is a test", "Another example"]
+        dataset = build_dae_dataset(samples)
+        self.assertEqual(len(dataset), len(samples))
+        for item in dataset:
+            self.assertIn("input", item)
+            self.assertIn("target", item)
+
+    def test_dae_dataset_uniqueness(self):
+        samples = ["This is a test", "Another example", "Yet another test"]
+        dataset = build_dae_dataset(samples)
+        inputs = [item["input"] for item in dataset]
+        self.assertEqual(len(inputs), len(set(inputs)), "All inputs in the dataset should be unique")
+
+    def test_build_contrastive_pairs(self):
+        dataset = [ # ai generated test
+            {
+                "query": "What is AI?",
+                "positive_passages": [{"text": "AI is artificial intelligence."}],
+                "negative_passages": [
+                    {"text": "AI is a type of food."},
+                    {"text": "AI is a movie."}
+                ]
+            }
+        ]
+        pairs = build_contrastive_pairs(dataset, max_negatives=1)
+        self.assertEqual(len(pairs), 1)
+        self.assertIn("query", pairs[0])
+        self.assertIn("positive", pairs[0])
+        self.assertIn("negative", pairs[0])
+
+    def test_contrastive_pairs_uniqueness(self):
+        dataset = [
+            {
+                "query": "What is AI?",
+                "positive_passages": [{"text": "AI is artificial intelligence."}],
+                "negative_passages": [
+                    {"text": "AI is a type of food."},
+                    {"text": "AI is a movie."}
+                ]
+            },
+            {
+                "query": "What is ML?",
+                "positive_passages": [{"text": "ML is machine learning."}],
+                "negative_passages": [
+                    {"text": "ML is a type of food."},
+                    {"text": "ML is a movie."}
+                ]
+            }
+        ]
+        pairs = build_contrastive_pairs(dataset, max_negatives=1)
+        unique_pairs = {tuple(pair.values()) for pair in pairs}
+        self.assertEqual(len(pairs), len(unique_pairs), "All contrastive pairs should be unique")
+
+    def test_load_and_compare_embeddings(self):
+        vae_embeddings = torch.load("./data/SQUAD/squad_vae_embeddings.pt")
+        dae_embeddings = torch.load("./data/SQUAD/squad_dae_embeddings.pt")
+
+        self.assertIsNotNone(vae_embeddings, "VAE embeddings should not be None")
+        self.assertIsNotNone(dae_embeddings, "DAE embeddings should not be None")
+
+        if isinstance(vae_embeddings, dict):
+            print("VAE embeddings keys:", vae_embeddings.keys())
+        if isinstance(dae_embeddings, dict):
+            print("DAE embeddings keys:", dae_embeddings.keys())
+
+        if isinstance(vae_embeddings, dict):
+            vae_embeddings = vae_embeddings.get("input", None)
+        if isinstance(dae_embeddings, dict):
+            dae_embeddings = dae_embeddings.get("input", None)
+
+        self.assertIsInstance(vae_embeddings, torch.Tensor, "VAE embeddings should be a tensor")
+        self.assertIsInstance(dae_embeddings, torch.Tensor, "DAE embeddings should be a tensor")
+
+        self.assertFalse(torch.equal(vae_embeddings, dae_embeddings), "VAE and DAE embeddings should be different")
+
+    def test_load_and_compare_contrastive_embeddings(self):
+        contrastive_embeddings = torch.load("./data/SQUAD/squad_contrastive_embeddings.pt")
+
+        self.assertIsNotNone(contrastive_embeddings, "Contrastive embeddings should not be None")
+
+        if isinstance(contrastive_embeddings, dict):
+            print("Contrastive embeddings keys:", contrastive_embeddings.keys())
+
+        if isinstance(contrastive_embeddings, dict):
+            query_embeddings = contrastive_embeddings.get("query", None)
+            positive_embeddings = contrastive_embeddings.get("positive", None)
+            negative_embeddings = contrastive_embeddings.get("negative", None)
+
+        self.assertIsInstance(query_embeddings, torch.Tensor, "Query embeddings should be a tensor")
+        self.assertIsInstance(positive_embeddings, torch.Tensor, "Positive embeddings should be a tensor")
+        self.assertIsInstance(negative_embeddings, torch.Tensor, "Negative embeddings should be a tensor")
+        self.assertFalse(torch.equal(query_embeddings, positive_embeddings), "Query and positive embeddings should be different")
+        self.assertFalse(torch.equal(query_embeddings, negative_embeddings), "Query and negative embeddings should be different")
+        self.assertFalse(torch.equal(positive_embeddings, negative_embeddings), "Positive and negative embeddings should be different")
+
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+"""
+
 test/test_evaluation.py
 """
 import pytest
@@ -2676,7 +2790,7 @@ def _jaccard_sim(a: str, b: str) -> float:
 
 def ensure_uda_data(
     *,
-    output_dir: str = "./data",
+    output_dir: str = "./data/",
     max_samples: Optional[int] = None,
     base_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
     noise_std: float = 0.05,
@@ -2886,23 +3000,23 @@ def ensure_squad_data(
 
 def _prepare_uda(cfg: dict) -> Dict[str, str]:
     common = dict(
-        output_dir="./data",
+        output_dir="./data/UDA",
         max_samples=cfg["data"].get("max_samples"),
         base_model_name=cfg["embedding_model"]["name"],
         force=False,
     )
     ensure_uda_data(**common)
     return {
-        "vae": "./data/uda_vae_embeddings.pt",
-        "dae": "./data/uda_dae_embeddings.pt",
-        "cae": "./data/uda_contrastive_embeddings.pt",
+        "vae": "./data/UDA/uda_vae_embeddings.pt",
+        "dae": "./data/UDA/uda_dae_embeddings.pt",
+        "cae": "./data/UDA/uda_contrastive_embeddings.pt",
     }
 
 
 def _prepare_squad(cfg: dict) -> Dict[str, str]:
     data_cfg = cfg["data"]
     common = dict(
-        output_dir="./data",
+        output_dir="./data/SQUAD/",
         max_samples=data_cfg.get("max_samples"),
         base_model_name=cfg["embedding_model"]["name"],
         noise_std=0.05,
@@ -2911,9 +3025,9 @@ def _prepare_squad(cfg: dict) -> Dict[str, str]:
     )
     ensure_squad_data(**common)
     return {
-        "vae": "./data/squad_vae_embeddings.pt",
-        "dae": "./data/squad_dae_embeddings.pt",
-        "cae": "./data/squad_contrastive_embeddings.pt",
+        "vae": "./data/SQUAD/squad_vae_embeddings.pt",
+        "dae": "./data/SQUAD/squad_dae_embeddings.pt",
+        "cae": "./data/SQUAD/squad_contrastive_embeddings.pt",
     }
 
 
@@ -2936,7 +3050,7 @@ def prepare_datasets(
     variant = variant.lower()
     assert variant in {"vae", "dae", "cae"}, "variant must be vae, dae or cae"
 
-    ds_name = (dataset_override or cfg.get("data", {}).get("dataset", "uda")).lower()
+    ds_name = (dataset_override or cfg.get("data", {}).get("dataset", "squad")).lower()
     if ds_name == "squad":
         paths = _prepare_squad(cfg)
     elif ds_name == "uda":
