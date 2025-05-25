@@ -433,3 +433,24 @@ Training VAE | device=cuda | deterministic=False
 2025-05-25 00:52:42,677 [INFO] train: [Epoch 12/50] train=0.021708 | val=0.062522
 2025-05-25 00:52:42,677 [INFO] train: [EARLY STOP] No improvement in validation.
 2025-05-25 00:52:42,677 [INFO] main: [DONE] Best val_loss = 0.059725
+2025-05-25 10:19:11,284 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 10:24:53,177 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 10:25:05,626 [INFO] sentence_transformers.SentenceTransformer: Use pytorch device_name: cuda:0
+2025-05-25 10:25:05,626 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-05-25 10:30:51,447 [INFO] train: CAE | device=cuda | hard_negatives=True | margin=0.200
+2025-05-25 10:32:09,684 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 10:32:09,896 [INFO] train: CAE | device=cuda | hard_negatives=True | margin=0.200
+2025-05-25 10:33:32,971 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 10:33:33,171 [INFO] train: CAE | device=cuda | hard_negatives=True | margin=0.200
+2025-05-25 10:36:15,875 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 10:36:16,090 [INFO] train: CAE | device=cuda | hard_negatives=True | margin=0.200
+2025-05-25 10:36:17,951 [INFO] train: [Epoch 01/50] train=0.062354 | val=0.056432
+2025-05-25 10:36:17,967 [INFO] train: 🏆  Nueva mejor val_loss → 0.056432  (checkpoint guardado)
+2025-05-25 10:36:20,514 [INFO] train: [Epoch 02/50] train=0.049205 | val=0.054554
+2025-05-25 10:36:20,517 [INFO] train: 🏆  Nueva mejor val_loss → 0.054554  (checkpoint guardado)
+2025-05-25 10:36:23,012 [INFO] train: [Epoch 03/50] train=0.045920 | val=0.054064
+2025-05-25 10:36:23,015 [INFO] train: 🏆  Nueva mejor val_loss → 0.054064  (checkpoint guardado)
+2025-05-25 10:36:25,515 [INFO] train: [Epoch 04/50] train=0.044380 | val=0.052073
+2025-05-25 10:36:25,518 [INFO] train: 🏆  Nueva mejor val_loss → 0.052073  (checkpoint guardado)
+2025-05-25 10:36:28,251 [INFO] train: [Epoch 05/50] train=0.042924 | val=0.051981
+2025-05-25 10:36:31,020 [INFO] train: [Epoch 06/50] train=0.041839 | val=0.052699

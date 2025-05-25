@@ -2,6 +2,8 @@
 
 import torch
 from transformers import AutoTokenizer, AutoModel
+from sentence_transformers import SentenceTransformer
+
 
 class EmbeddingCompressor:
     def __init__(
