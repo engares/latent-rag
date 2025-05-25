@@ -50,7 +50,7 @@ def _score_single(
         return mrr(retrieved[: (k or len(retrieved))], relevant)
     if name == "ndcg" and k is not None:
         return ndcg_at_k(retrieved, relevant, k)
-    raise ValueError(f"Métrica '{name}' mal especificada.")
+    raise ValueError(f"Metric '{name}' not found.")
 
 def evaluate_retrieval(retrieved_batch: List[Sequence[ID]] | Sequence[ID],
     relevant_batch: List[Sequence[ID]] | Sequence[ID],
