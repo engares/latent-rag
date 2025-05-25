@@ -1,5 +1,4 @@
-# training/train_cae.py ― Contrastive Auto-Encoder con minería de negativos y validación
-# Versión refactorizada 25-May-2025
+# training/train_cae.py ― Contrastive Auto-Encoder with negative mining and validation
 
 from __future__ import annotations
 import argparse, os, math
@@ -11,7 +10,7 @@ from torch.nn.utils import clip_grad_norm_
 
 from data.torch_datasets import EmbeddingTripletDataset
 from models.contrastive_autoencoder import ContrastiveAutoencoder
-from training.loss_functions import contrastive_loss        # conserva in-batch mining
+from training.loss_functions import contrastive_loss        # in-batch mining
 from utils.load_config import load_config, init_logger
 from utils.training_utils import set_seed, resolve_device
 from utils.data_utils import prepare_datasets, split_dataset
@@ -25,7 +24,7 @@ def _build_optimizer(model: torch.nn.Module, lr: float, weight_decay: float) -> 
     return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
 def _build_scheduler(optim: torch.optim.Optimizer, patience: int, factor: float = 0.5):
-    # Reduce LR si val_loss no mejora `patience` epochs seguidos
+    # Reduce LR if val_loss does not improve for `patience` consecutive epochs
     return torch.optim.lr_scheduler.ReduceLROnPlateau(
         optim, mode="min", factor=factor, patience=max(1, patience // 2)
     )
@@ -49,9 +48,9 @@ def train_cae(
     margin: float = 0.2,
     val_split: float = 0.1,
     patience: Optional[int] = 5,
-    min_delta: float = 0.003,                   # 0.3 % de mejora relativa
+    min_delta: float = 0.003,                   # 0.3% relative improvement
     weight_decay: float = 1e-4,
-    clip_grad_norm: float = 1.0,                # 0 = desactivar
+    clip_grad_norm: float = 1.0,                # 0 = disable
     device: Optional[str] = None,
 ) -> None:
 

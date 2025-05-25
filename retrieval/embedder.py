@@ -1,8 +1,7 @@
 # retrieval/embedder.py
 
-import torch
-from transformers import AutoTokenizer, AutoModel
 from sentence_transformers import SentenceTransformer
+import torch
 
 
 class EmbeddingCompressor:
@@ -14,28 +13,36 @@ class EmbeddingCompressor:
     ):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Modelo base de embeddings (ej. BERT, SBERT, DPR)
-        self.tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-        self.model = AutoModel.from_pretrained(base_model_name).to(self.device)
-        self.model.eval()
+        # Load pretrained SBERT model (includes pooling + normalization)
+        self.model = SentenceTransformer(base_model_name, device=self.device)
 
-        # Autoencoder (inyectado externamente, puede ser VAE, DAE, etc.)
+        # Optional autoencoder for compression (VAE, DAE, etc.)
         self.autoencoder = autoencoder.to(self.device) if autoencoder else None
         if self.autoencoder:
             self.autoencoder.eval()
 
     def encode_text(self, texts: list[str], compress: bool = True) -> torch.Tensor:
+        """Returns SBERT embeddings, optionally compressed with an autoencoder.
+
+        Args:
+            texts: List of input strings to encode.
+            compress: Whether to apply the autoencoder (if available).
+
+        Returns:
+            A float32 tensor [N × D] on CPU.
+        """
         with torch.no_grad():
-            tokens = self.tokenizer(texts, padding=True, truncation=True, return_tensors='pt').to(self.device)
-            outputs = self.model(**tokens)
-            cls_embeddings = outputs.last_hidden_state[:, 0, :]  # Representación [CLS]
+            embeddings = self.model.encode(
+                texts,
+                batch_size=64,
+                convert_to_tensor=True,
+                normalize_embeddings=True
+            ).to(self.device)
 
             if self.autoencoder and compress:
-                if hasattr(self.autoencoder, "encode"):
-                    encoded = self.autoencoder.encode(cls_embeddings)
-                    if isinstance(encoded, tuple):  # VAE (mu, logvar)
-                        return encoded[0].cpu()     # usamos mu
-                    return encoded.cpu()
-                else:
-                    raise ValueError("El autoencoder debe implementar el método 'encode'")
-            return cls_embeddings.cpu()
+                encoded = self.autoencoder.encode(embeddings)
+                if isinstance(encoded, tuple):  # VAE returns (mu, logvar)
+                    encoded = encoded[0]        # use mean as latent code
+                return encoded.cpu()
+
+            return embeddings.cpu()
