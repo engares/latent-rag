@@ -67,10 +67,10 @@ def evaluate_retrieval(retrieved_batch: List[Sequence[ID]] | Sequence[ID],
         relevant_batch  = [relevant_batch]               # type: ignore[assignment]
 
     assert len(retrieved_batch) == len(relevant_batch), \
-        "retrieved_batch y relevant_batch deben tener la misma longitud."
+        "retrieved_batch and relevant_batch must have the same length."
 
     if not metrics:
-        raise ValueError("No se especificaron métricas de evaluación.")
+        raise ValueError("No metrics specified.")
 
     Q = len(retrieved_batch)
     per_query: List[Dict[str, float]] = [{} for _ in range(Q)]
