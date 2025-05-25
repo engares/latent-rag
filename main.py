@@ -247,7 +247,7 @@ def main() -> None:  # noqa: D401 – standard script
     )
 
     # --------------------------------------------------------------------- Toy corpus (replace with real dataset) --
-    queries, corpus, relevant = load_evaluation_data(args.dataset, max_samples=2) # args.max_samples
+    queries, corpus, relevant = load_evaluation_data(args.dataset, max_samples=args.max_samples)
 
     # --------------------------------------------------------------------- Run each variant
     for ae in ae_variants:

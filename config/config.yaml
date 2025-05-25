@@ -13,8 +13,8 @@ embedding_model:
 
 models:
   vae:
-    input_dim: 384
-    latent_dim: 64
+    input_dim: 384 # Sentence Transformers embedding dimension
+    latent_dim: 64 
     hidden_dim: 512
     dataset_path: "./data/SQUAD/squad_vae_embeddings.pt"          
     checkpoint: "./models/checkpoints/vae_text.pth"
