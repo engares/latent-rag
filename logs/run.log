@@ -454,3 +454,8 @@ Training VAE | device=cuda | deterministic=False
 2025-05-25 10:36:25,518 [INFO] train: 🏆  Nueva mejor val_loss → 0.052073  (checkpoint guardado)
 2025-05-25 10:36:28,251 [INFO] train: [Epoch 05/50] train=0.042924 | val=0.051981
 2025-05-25 10:36:31,020 [INFO] train: [Epoch 06/50] train=0.041839 | val=0.052699
+2025-05-25 11:33:40,529 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 11:34:15,346 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 11:34:41,850 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 11:34:57,611 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 11:35:48,664 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)

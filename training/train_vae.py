@@ -54,7 +54,7 @@ def train_vae(
             x_tar = batch["target"].to(device)
             optim.zero_grad()
             x_rec, mu, logvar = model(x_in)
-            loss = vae_loss(x_rec, x_tar, mu, logvar, reduction="mean")
+            loss = vae_loss(x_rec, x_tar, mu, logvar, mse_reduction="mean")
             loss.backward(); optim.step()
             running += loss.item() * x_in.size(0)
         train_loss = running / len(train_ds)
@@ -66,7 +66,7 @@ def train_vae(
                 x_in  = batch["input"].to(device)
                 x_tar = batch["target"].to(device)
                 x_rec, mu, logvar = model(x_in)
-                vloss = vae_loss(x_rec, x_tar, mu, logvar, reduction="mean")
+                vloss = vae_loss(x_rec, x_tar, mu, logvar, mse_reduction="mean")
                 val_running += vloss.item() * x_in.size(0)
         val_loss = val_running / len(val_ds)
 

@@ -25,3 +25,5 @@ python-dotenv>=1.0.0
 
 # Optional CLI Enhancements
 rich>=13.0.0
+
+pytest 
