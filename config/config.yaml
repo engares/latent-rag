@@ -3,7 +3,7 @@ project:
   version: "0.1"
 
 paths:
-  data_dir: "./data/SQUAD2"
+  data_dir: "./data/SQUAD"
   checkpoints_dir: "./models/checkpoints"
   logs_dir: "./logs"
 
@@ -40,9 +40,9 @@ models:
 
 data:
   dataset: "squad"            #  "uda"  |  "squad"
-  version: "v2"          #  v1, v2  ONly for squad
+  version: "v1"          #  v1, v2  ONly for squad
   max_samples:         #  optional, blankk to use all samples
-  include_unanswerable: true   #  Only Squad v2 has this option
+  include_unanswerable: false   #  Only Squad v2 has this option
 
 training:
   batch_size: 128

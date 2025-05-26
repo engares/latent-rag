@@ -639,3 +639,6 @@ Training VAE | device=cuda | deterministic=False
 2025-05-25 20:27:13,245 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
 2025-05-25 20:35:48,898 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
 2025-05-25 20:46:09,569 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 21:10:06,789 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-05-25 21:10:26,484 [INFO] sentence_transformers.SentenceTransformer: Use pytorch device_name: cuda:0
+2025-05-25 21:10:26,485 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2

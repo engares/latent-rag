@@ -92,8 +92,8 @@ def evaluate_generation_bootstrap(
     if metrics is None:
         metrics = ["BLEU", "ROUGE-L"]
 
-    assert len(references) == len(candidates) >= 30, ( 
-        "Se requieren al menos 30 pares ref‑cand para un IC mínimo; se recomienda ≥1000."
+    assert len(references) == len(candidates) >= 100, ( 
+        "Se requieren al menos 100 pares ref‑cand para un IC mínimo; se recomienda ≥1000."
     )
 
     results: Dict[str, Dict[str, float]] = {}

@@ -186,8 +186,8 @@ class PipelineRunner:  # noqa: D101 – simple orchestrator
             for k, v in ret_metrics.items():
                 rprint(f"{k}: {v['mean']:.4f} ± {v['std']:.4f}")
 
-        if generate and relevant_docs and len(queries) >= 30: 
-            # If the user provided refs with ≥30 samples we can bootstrap.
+        if generate and relevant_docs and len(queries) >= 100:
+            # If the user provided refs with ≥100 samples we can bootstrap.
             gen_metrics = eval_generation(
                 references=list(relevant_docs),
                 candidates=answers,

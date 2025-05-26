@@ -24,10 +24,8 @@ This framework covers from data preparation, model training, retrieval to option
    * [CAE](#cae)
 7. [Pipeline Execution](#pipeline-execution)
 8. [Evaluation](#evaluation)
-9. [Code Style](#code-style)
 10. [Project Structure](#project-structure)
 11. [Testing](#testing)
-12. [Scripts](#scripts)
 
 ---
 
@@ -35,14 +33,14 @@ This framework covers from data preparation, model training, retrieval to option
 
 * Encode text embeddings using SBERT and compress with VAE/DAE/CAE.
 * Retrieve top‑k relevant documents using cosine, Euclidean or Mahalanobis similarity.
-* Generate answers via RAG using OpenAI GPT-4o-mini with custom system prompts.
+* Generate answers via RAG using OpenAI API with custom system prompts.
 * Evaluate retrieval (Recall\@k, MRR, nDCG) and generation (BLEU, ROUGE-L, METEOR) with bootstrap CIs.
-* Configurable via YAML; extensible for other datasets or LLM providers.
+* Configurable via YAML; extensible for other datasets or API providers.
 
 ## Prerequisites
 
 * Python ≥ 3.10
-* GPU recommended for large-scale embedding and training.
+* GPU recommended for large-scale embedding and training. (Trained ona 4060 8GB VRAM)
 * OpenAI API key (set in `.env` as `OPENAI_API_KEY`).
 
 Install dependencies:
