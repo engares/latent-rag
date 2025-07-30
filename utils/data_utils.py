@@ -11,7 +11,8 @@ import random
 from torch.utils.data import Subset
 
 from pathlib import Path
-from typing import Dict, Optional
+from hashlib import sha1
+
 
 def _compute_embeddings(
     texts: List[str],
@@ -34,7 +35,58 @@ def _jaccard_sim(a: str, b: str) -> float:
     union = a_set | b_set
     return len(inter) / len(union) if union else 0.0
 
-def ensure_uda_data(
+def _texts_fingerprint(texts: List[str]) -> str:
+    """
+    Devuelve un hash abreviado (10 hex) de la secuencia de textos.
+    El orden de los textos importa, así garantizamos reproducibilidad.
+    """
+    h = sha1()
+    for t in texts:
+        h.update(t.encode("utf-8"))
+    return h.hexdigest()[:10]                # 40 bits bastan para colisiones muy raras
+
+
+def ensure_sbert_cache(
+    texts: List[str],
+    *,
+    model_name: str,
+    cache_dir: str = "./data/SBERT",
+    batch_size: int = 64,
+    force: bool = False,
+) -> torch.Tensor:
+    """
+    Calcula (o reutiliza) los embeddings de SBERT y los persiste en disco.
+
+    Args
+    ----
+    texts       : Lista de cadenas a codificar.
+    model_name  : Identificador HuggingFace / Sentence-Transformers del modelo.
+    cache_dir   : Carpeta donde almacenar los .pt (creada si no existe).
+    batch_size  : Tamaño de lote para _compute_embeddings.
+    force       : Si True, rehace el cálculo aunque exista el fichero.
+
+    Returns
+    -------
+    Tensor CPU float32 de dimensión [N × D].
+    """
+    os.makedirs(cache_dir, exist_ok=True)
+
+    fp        = _texts_fingerprint(texts)
+    model_tag = model_name.split("/")[-1]
+    fname     = f"sbert_{fp}_{model_tag}.pt"
+    path      = os.path.join(cache_dir, fname)
+
+    if not force and os.path.exists(path):
+        return torch.load(path, map_location="cpu")
+
+    print(f"[INFO] SBERT cache miss → codificando {len(texts):,} textos …")
+    st_model  = SentenceTransformer(model_name)
+    emb       = _compute_embeddings(texts, st_model, batch_size=batch_size)
+    torch.save(emb, path)
+    print(f"[OK]  SBERT embeddings guardados → {path}")
+    return emb
+
+def ensure_uda_data( # EN DESUSO
     *,
     output_dir: str = "./data/",
     max_samples: Optional[int] = None,
@@ -139,14 +191,15 @@ def ensure_squad_data(
     include_unanswerable: bool = False,
     force: bool = False,
 ) -> None:
-    """Generate VAE / DAE / CAE embedding tensors from **SQuAD v1/v2**.
-
-    The tensors are stored on disk using the same structure as the UDA helper,
-    so training scripts remain unchanged.  Filenames:
+    """
+    Pre-procesa **SQuAD v1/v2** y genera los tensores de entrenamiento:
 
         squad_vae_embeddings.pt
         squad_dae_embeddings.pt
         squad_contrastive_embeddings.pt
+
+    Ahorra tiempo reutilizando una única caché SBERT para queries y
+    contextos positivos; sólo los negativos se codifican aparte.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -154,19 +207,19 @@ def ensure_squad_data(
     dae_path         = os.path.join(output_dir, "squad_dae_embeddings.pt")
     contrastive_path = os.path.join(output_dir, "squad_contrastive_embeddings.pt")
 
-    # --------------------------------------------------------------------- #
-    #  Early exit if everything is already cached                           #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  0. Early-exit si todo existe                                       #
+    # ------------------------------------------------------------------ #
     if (
         not force
         and all(os.path.exists(p) for p in (vae_path, dae_path, contrastive_path))
     ):
-        print("[INFO] SQuAD embeddings already prepared nothing to do.")
+        print("[INFO] SQuAD embeddings already prepared — nothing to do.")
         return
 
-    # --------------------------------------------------------------------- #
-    #  1. Load SQuAD                                                        #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  1. Cargar SQuAD                                                   #
+    # ------------------------------------------------------------------ #
     ds_name = "squad_v2" if include_unanswerable else "squad"
     print(f"[INFO] Loading {ds_name} …")
     squad = load_dataset(ds_name, split="train")
@@ -174,9 +227,9 @@ def ensure_squad_data(
         squad = squad.select(range(min(max_samples, len(squad))))
     print(f"[INFO] SQuAD loaded with {len(squad):,} examples.")
 
-    # --------------------------------------------------------------------- #
-    #  2. Build positive contexts and contrastive triples                   #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  2. Construir textos y tripletas                                   #
+    # ------------------------------------------------------------------ #
     clean_texts: List[str] = []
     contrastive_triples: List[Tuple[str, str, str]] = []
 
@@ -186,7 +239,7 @@ def ensure_squad_data(
         if not q or not ctx:
             continue
 
-        # ----------------- simple negative mining ------------------------ #
+        # -------- obtener negativo poco parecido ----------------------- #
         neg = None
         for _ in range(10):
             j = random.randint(0, len(squad) - 1)
@@ -199,23 +252,30 @@ def ensure_squad_data(
         if neg is None:
             continue
 
-        clean_texts.extend([q, ctx])              # query + positive context
+        clean_texts.extend((q, ctx))               # [q1, ctx1, q2, ctx2, ...]
         contrastive_triples.append((q, ctx, neg))
 
     print(f"[INFO] Contrastive triples generated: {len(contrastive_triples):,}")
 
-    # --------------------------------------------------------------------- #
-    #  3. Encode with SBERT                                                 #
-    # --------------------------------------------------------------------- #
-    print(f"[INFO] Loading SBERT '{base_model_name}' …")
-    st_model = SentenceTransformer(base_model_name)
+    # ------------------------------------------------------------------ #
+    #  3. Embeddings SBERT (una sola llamada)                            #
+    # ------------------------------------------------------------------ #
+    print("[INFO] Fetching / caching SBERT embeddings …")
+    cache_dir  = os.path.join(output_dir, "sbert_cache")
+    target_emb = ensure_sbert_cache(
+        clean_texts,
+        model_name=base_model_name,
+        cache_dir=cache_dir,
+        batch_size=64,
+    )  # shape [2·N, D]
 
-    print("[INFO] Encoding queries + positive contexts …")
-    target_emb = _compute_embeddings(clean_texts, st_model)   # shape [N × D]
+    # desinterlevar: pares (q, ctx) -> índices pares / impares
+    q_emb_pos = target_emb[0::2]   # consultas
+    p_emb_pos = target_emb[1::2]   # contextos positivos
 
-    # --------------------------------------------------------------------- #
-    #  4. Save VAE and DAE variants                                         #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  4. Guardar VAE / DAE                                              #
+    # ------------------------------------------------------------------ #
     if force or not os.path.exists(vae_path):
         torch.save({"input": target_emb, "target": target_emb.clone()}, vae_path)
         print(f"[OK]  VAE embeddings   → {vae_path}")
@@ -225,17 +285,21 @@ def ensure_squad_data(
         torch.save({"input": input_emb, "target": target_emb}, dae_path)
         print(f"[OK]  DAE embeddings   → {dae_path}")
 
-    # --------------------------------------------------------------------- #
-    #  5. Save contrastive triplets                                         #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  5. Guardar tripletas contrastivas                                 #
+    # ------------------------------------------------------------------ #
     if force or not os.path.exists(contrastive_path):
-        print("[INFO] Encoding triplets …")
-        qs, ps, ns = zip(*contrastive_triples)
-        q_emb = _compute_embeddings(list(qs), st_model)
-        p_emb = _compute_embeddings(list(ps), st_model)
-        n_emb = _compute_embeddings(list(ns), st_model)
+        print("[INFO] Encoding negatives and saving triplets …")
+        # solo los negativos requieren consulta a la caché (puede existir)
+        ns = [neg for _, _, neg in contrastive_triples]
+        n_emb = ensure_sbert_cache(ns, model_name=base_model_name, cache_dir=cache_dir)
+
         torch.save(
-            {"query": q_emb, "positive": p_emb, "negative": n_emb},
+            {
+                "query":     q_emb_pos,
+                "positive":  p_emb_pos,
+                "negative":  n_emb,
+            },
             contrastive_path,
         )
         print(f"[OK]  Contrastive embeddings → {contrastive_path}")
