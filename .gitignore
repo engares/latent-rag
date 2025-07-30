@@ -11,5 +11,5 @@ data/SQUAD/*.pt
 
 data/UDA/*.pt
 
-.png
+*.png
 
