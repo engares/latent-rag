@@ -1,188 +1,206 @@
-"""Embedding visualisation utilities — *extended*.
+"""Embedding visualisation utilities — 2‑D *and* 3‑D, t‑SNE or PCA.
 
-Adds distance‑aware styling and optional filtering to make the query↔doc
-relationship visually obvious while keeping backward compatibility.
+Features
+========
+* **Projection back‑end**: choose `'tsne'` (default) or `'pca'`.
+* **Dimensionality**: 2‑D (scatter) or 3‑D (interactive rotation).
+* **Binary hit/miss coding** with recall @ *k* and trustworthiness.
+* **Histogram + CDF** of pairwise distances in the chosen sub‑space.
 
-Public API (superset of original):
----------------------------------
-* `plot_query_doc_pairs` now accepts:
-    - `max_lines     : int | None`  – draw only the *k* shortest/longest links.
-    - `color_by_dist : bool`        – map link colour to Euclidean distance.
-* `visualize_compressed_vs_original` exposes those params via `kwargs`.
+Public function
+---------------
+`visualize_compressed_vs_original(…, projection="tsne", n_components=2, …)`
 
-Example usage (unchanged defaults preserve previous behaviour):
-
+Example
+~~~~~~~
 ```python
 visualize_compressed_vs_original(
     q_orig, d_orig, q_comp, d_comp,
-    sample_size=1_000,
-    max_lines=200,              # draw only 200 closest pairs
-    color_by_dist=True,         # green→red based on |q‑d|
-    save_path="tsne.png",
+    n_components=3,        # 3‑D scatter
+    projection="pca",     # PCA instead of t‑SNE
+    k_near=10,
+    perplexity=35,         # ignored for PCA
+    save_path="viz_3d.png",
 )
 ```
 """
 from __future__ import annotations
 
-from typing import Dict, Optional, Literal
+from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
-import matplotlib as mpl
+import matplotlib.gridspec as gridspec
 import torch
+import torch.nn.functional as F
+from matplotlib.ticker import PercentFormatter
 from sklearn.manifold import TSNE, trustworthiness
+from sklearn.decomposition import PCA
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 – necessary for 3‑D
 
-Tensor = torch.Tensor  # alias for brevity
+Tensor = torch.Tensor
 
 # ---------------------------------------------------------------------------
-#  Low‑level helpers
+#  Helpers
 # ---------------------------------------------------------------------------
 
-def _to_numpy(x: Tensor):  # -> np.ndarray (forward ref avoided)
+def _to_numpy(x: Tensor):
     return x.detach().cpu().float().numpy()
 
-# ---------------------------------------------------------------------------
-#  t‑SNE
-# ---------------------------------------------------------------------------
 
-def tsne_projection(
-    embeddings: Tensor,
-    *,
-    n_components: int = 2,
-    perplexity: float = 30.0,
-    random_state: int = 42,
-) -> Tensor:
-    if embeddings.dim() != 2:
-        raise ValueError("`embeddings` must be 2‑D [N, D].")
-    tsne = TSNE(
-        n_components=n_components,
-        perplexity=perplexity,
-        metric="cosine",
-        init="pca",
-        n_iter=1_000,
-        random_state=random_state,
-    )
-    return torch.from_numpy(tsne.fit_transform(_to_numpy(embeddings))).float()
+def _rank_positive(q: Tensor, d: Tensor) -> Tensor:
+    """1‑based rank of each positive doc (cosine similarity)."""
+    sim = F.cosine_similarity(q.unsqueeze(1), d.unsqueeze(0), dim=-1)
+    return sim.argsort(dim=1, descending=True).argsort(dim=1).diagonal() + 1
+
+
+def _project(x: Tensor, *, method: str, n_components: int, perplexity: float, seed: int) -> Tensor:
+    """Return low‑D embedding (torch.Tensor) via t‑SNE or PCA."""
+    if method == "tsne":
+        tsne = TSNE(n_components=n_components, perplexity=perplexity, metric="cosine", init="pca", max_iter=1_000, random_state=seed)
+        return torch.from_numpy(tsne.fit_transform(_to_numpy(x))).float()
+    elif method == "pca":
+        pca = PCA(n_components=n_components, random_state=seed)
+        return torch.from_numpy(pca.fit_transform(_to_numpy(x))).float()
+    else:
+        raise ValueError("method must be 'tsne' or 'pca'")
 
 # ---------------------------------------------------------------------------
-#  Plotting helpers
+#  Plotting primitives
 # ---------------------------------------------------------------------------
 
-def _compute_distances(a: Tensor, b: Tensor) -> Tensor:
-    """Euclidean distance between corresponding rows."""
-    return ((a - b).pow(2).sum(1)).sqrt()
+def _scatter(ax, pts: Tensor, colour: str, marker: str, label: str, **kw):
+    if pts.size(1) == 2:
+        ax.scatter(pts[:, 0], pts[:, 1], c=colour, marker=marker, label=label, **kw)
+    else:
+        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], c=colour, marker=marker, label=label, **kw)
 
 
-def plot_query_doc_pairs(
-    q_emb2d: Tensor,
-    d_emb2d: Tensor,
-    *,
-    ax: Optional[plt.Axes] = None,
-    connect: bool = True,
-    alpha: float = 0.8,
-    point_size: int = 40,
-    max_lines: Optional[int] = None,
-    line_selection: Literal["shortest", "longest"] = "shortest",
-    color_by_dist: bool = False,
-) -> plt.Axes:
-    """Scatter of queries + positives with optional distance‑aware links.
+def _link(ax, p: Tensor, q: Tensor, colour: str):
+    if p.numel() == 2:            # 2-D
+        ax.plot([p[0], q[0]], [p[1], q[1]],
+                color=colour, linewidth=0.8, alpha=0.8)
+    else:                         # 3-D
+        ax.plot([p[0], q[0]], [p[1], q[1]], [p[2], q[2]],
+                color=colour, linewidth=0.8, alpha=0.8)
 
-    Args:
-        max_lines: Draw at most *k* links; picks the `line_selection` shortest
-            or longest.  `None` = draw all.
-        color_by_dist: If *True*, colour links (and optional edge of markers)
-            using a **linear** green→red colormap based on 2‑D distance.
-    """
-    if q_emb2d.shape != d_emb2d.shape:
-        raise ValueError("Shapes mismatch.")
-    if q_emb2d.size(1) != 2:
-        raise ValueError("Expect [N, 2].")
 
-    if ax is None:
-        _, ax = plt.subplots(figsize=(8, 6))
 
-    # ---- base scatter --------------------------------------------------
-    ax.scatter(q_emb2d[:, 0], q_emb2d[:, 1], c="C0", label="Query", alpha=alpha, s=point_size)
-    ax.scatter(d_emb2d[:, 0], d_emb2d[:, 1], c="C1", marker="^", label="Positive doc", alpha=alpha, s=point_size)
-
-    if connect:
-        dist = _compute_distances(q_emb2d, d_emb2d)
-        order = torch.arange(len(dist))
-        if max_lines is not None and max_lines < len(dist):
-            if line_selection == "shortest":
-                order = dist.topk(max_lines, largest=False).indices
-            else:  # longest
-                order = dist.topk(max_lines, largest=True).indices
-        cmap = mpl.cm.get_cmap("RdYlGn_r")
-        norm = mpl.colors.Normalize(vmin=float(dist.min()), vmax=float(dist.max()))
-        for i in order.tolist():
-            q, d = q_emb2d[i], d_emb2d[i]
-            color = cmap(norm(float(dist[i]))) if color_by_dist else "gray"
-            ax.plot([q[0], d[0]], [q[1], d[1]], color=color, linewidth=0.8, alpha=0.7)
-
+def _scatter_pairs(ax, q_emb: Tensor, d_emb: Tensor, hit: Tensor):
+    """Draw queries/docs and red links for misses."""
+    dim = q_emb.size(1)
+    if dim == 3:
+        ax = ax  # 3‑D Axes
+    # base cloud
+    _scatter(ax, q_emb, "C0", "o", "Query", s=30, alpha=0.3)
+    _scatter(ax, d_emb, "C1", "^", "Doc",   s=30, alpha=0.3)
+    # hits green
+    _scatter(ax, q_emb[hit], "forestgreen", "o", "Hit q", s=35, alpha=0.3, zorder=3)
+    _scatter(ax, d_emb[hit], "forestgreen", "^", "Hit d", s=35, alpha=0.3, zorder=3)
+    miss = ~hit
+    _scatter(ax, q_emb[miss], "crimson", "o", "Miss q", s=35, alpha=0.3, zorder=4)
+    _scatter(ax, d_emb[miss], "gold", "^", "Miss d", s=35, alpha=0.3, zorder=4)
+    for p, q in zip(q_emb[miss], d_emb[miss]):
+        _link(ax, p, q, "crimson")
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.legend(frameon=False)
-    return ax
+    if dim == 3:
+        ax.set_zticks([])
+    ax.legend(frameon=False, fontsize=7, loc="upper right")
+
+
+def _hist_cdf(ax: plt.Axes, d1: Tensor, d2: Tensor, *, bins: int):
+    ax.hist(d1.numpy(), bins=bins, alpha=0.5, label="Orig dist")
+    ax.hist(d2.numpy(), bins=bins, alpha=0.5, label="Comp dist")
+    ax.set_xlabel("Pair distance |q - d|")
+    ax.set_ylabel("Frequency")
+    ax.legend(frameon=False, fontsize=7)
+    ax2 = ax.twinx()
+    for data, lbl in [(d1, "Orig CDF"), (d2, "Comp CDF")]:
+        sorted_vals = torch.sort(data).values
+        cdf = torch.arange(1, len(data)+1) / len(data)
+        ax2.plot(sorted_vals, cdf, label=lbl)
+    ax2.yaxis.set_major_formatter(PercentFormatter(1.0))
+    ax2.set_ylabel("CDF")
+    ax2.legend(frameon=False, fontsize=7, loc="lower right")
 
 # ---------------------------------------------------------------------------
-#  High‑level routine
+#  Public API
 # ---------------------------------------------------------------------------
 
 def visualize_compressed_vs_original(
-    q_original: Tensor,
-    d_original: Tensor,
-    q_compressed: Tensor,
-    d_compressed: Tensor,
+    q_orig: Tensor,
+    d_orig: Tensor,
+    q_comp: Tensor,
+    d_comp: Tensor,
     *,
+    projection: str = "tsne",      # 'tsne' or 'pca'
+    n_components: int = 2,          # 2 or 3
     sample_size: int = 1_000,
-    perplexity: float = 30.0,
-    n_neighbors: int = 5,
+    k_near: int = 5,
+    perplexity: float = 30.0,       # only for t‑SNE
+    bins: int = 30,
     random_state: int = 42,
     save_path: Optional[str] = None,
-    # new visual params
-    max_lines: Optional[int] = None,
-    color_by_dist: bool = False,
-    line_selection: Literal["shortest", "longest"] = "shortest",
 ) -> Dict[str, float]:
 
-    if not (len(q_original) == len(d_original) == len(q_compressed) == len(d_compressed)):
-        raise ValueError("All input batches must share the same length.")
+    if n_components not in {2, 3}:
+        raise ValueError("n_components must be 2 or 3")
+    if projection not in {"tsne", "pca"}:
+        raise ValueError("projection must be 'tsne' or 'pca'")
+    if not (len(q_orig) == len(d_orig) == len(q_comp) == len(d_comp)):
+        raise ValueError("Input lengths mismatch")
 
     torch.manual_seed(random_state)
-    n_samples = len(q_original)
-    if sample_size < n_samples:
-        idx = torch.randperm(n_samples)[:sample_size]
-        q_orig, d_orig = q_original[idx], d_original[idx]
-        q_comp, d_comp = q_compressed[idx], d_compressed[idx]
+    N = len(q_orig)
+    if sample_size < N:
+        idx = torch.randperm(N)[:sample_size]
+        q_o, d_o, q_c, d_c = q_orig[idx], d_orig[idx], q_comp[idx], d_comp[idx]
     else:
-        q_orig, d_orig, q_comp, d_comp = q_original, d_original, q_compressed, d_compressed
+        q_o, d_o, q_c, d_c = q_orig, d_orig, q_comp, d_comp
 
-    # 2‑D projection
-    orig_2d = tsne_projection(torch.cat([q_orig, d_orig]), perplexity=perplexity, random_state=random_state)
-    comp_2d = tsne_projection(torch.cat([q_comp, d_comp]), perplexity=perplexity, random_state=random_state)
-    n = len(q_orig)
-    q_orig_2d, d_orig_2d = orig_2d[:n], orig_2d[n:]
-    q_comp_2d, d_comp_2d = comp_2d[:n], comp_2d[n:]
+    rank = _rank_positive(q_o, d_o)
+    hit = rank <= k_near
 
-    # plotting
-    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-    plot_query_doc_pairs(
-        q_orig_2d, d_orig_2d, ax=axes[0], connect=True, max_lines=max_lines,
-        color_by_dist=color_by_dist, line_selection=line_selection
-    )
-    axes[0].set_title("Original embeddings")
+    orig_proj = _project(torch.cat([q_o, d_o]), method=projection, n_components=n_components, perplexity=perplexity, seed=random_state)
+    comp_proj = _project(torch.cat([q_c, d_c]), method=projection, n_components=n_components, perplexity=perplexity, seed=random_state)
+    q_proj_o, d_proj_o = orig_proj[: len(q_o)], orig_proj[len(q_o) :]
+    q_proj_c, d_proj_c = comp_proj[: len(q_o)], comp_proj[len(q_o) :]
 
-    plot_query_doc_pairs(
-        q_comp_2d, d_comp_2d, ax=axes[1], connect=True, max_lines=max_lines,
-        color_by_dist=color_by_dist, line_selection=line_selection
-    )
-    axes[1].set_title("Compressed embeddings")
+    dist_o = torch.linalg.norm(q_proj_o - d_proj_o, dim=1)
+    dist_c = torch.linalg.norm(q_proj_c - d_proj_c, dim=1)
 
-    plt.tight_layout()
+    tq = trustworthiness(_to_numpy(torch.cat([q_o, d_o])), _to_numpy(orig_proj))
+    tc = trustworthiness(_to_numpy(torch.cat([q_c, d_c])), _to_numpy(comp_proj))
+
+    # ---- layout -------------------------------------------------------
+    fig_height = 10 if n_components == 2 else 12
+    fig = plt.figure(figsize=(14, fig_height))
+    gs = gridspec.GridSpec(2, 2, height_ratios=[3, 2])
+
+    # top‑left
+    if n_components == 3:
+        ax_t1 = fig.add_subplot(gs[0, 0], projection="3d")
+    else:
+        ax_t1 = fig.add_subplot(gs[0, 0])
+    _scatter_pairs(ax_t1, q_proj_o, d_proj_o, hit)
+    ax_t1.set_title(f"Original {projection.upper()} – Recall@{k_near}: {hit.float().mean():.1%} | Trust: {tq:.3f}")
+
+    # top‑right
+    if n_components == 3:
+        ax_t2 = fig.add_subplot(gs[0, 1], projection="3d")
+    else:
+        ax_t2 = fig.add_subplot(gs[0, 1])
+    _scatter_pairs(ax_t2, q_proj_c, d_proj_c, hit)
+    ax_t2.set_title(f"Compressed {projection.upper()} – Recall@{k_near}: {hit.float().mean():.1%} | Trust: {tc:.3f}")
+
+    # bottom histogram
+    ax_hist = fig.add_subplot(gs[1, :])
+    _hist_cdf(ax_hist, dist_o, dist_c, bins=bins)
+    ax_hist.set_title(f"Pair distance distribution ({projection.upper()} {n_components}‑D)")
+
+    fig.tight_layout()
     if save_path:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.show()
 
-    tq = trustworthiness(_to_numpy(torch.cat([q_orig, d_orig])), _to_numpy(orig_2d), n_neighbors=n_neighbors)
-    tc = trustworthiness(_to_numpy(torch.cat([q_comp, d_comp])), _to_numpy(comp_2d), n_neighbors=n_neighbors)
     return {"trust_original": float(tq), "trust_compressed": float(tc)}

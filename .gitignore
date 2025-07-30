@@ -10,3 +10,6 @@ __pycache__/
 data/SQUAD/*.pt
 
 data/UDA/*.pt
+
+.png
+
