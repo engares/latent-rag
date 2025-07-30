@@ -1,21 +1,26 @@
-"""Quick t-SNE experiment for compressed vs. original SBERT embeddings.
+"""CLI helper — visualise compressed vs. original SBERT embeddings.
 
-This script **recomputes** the latent codes in memory (no disk cache for
-compressed embeddings).  It supports the three AE variants shipped in the
-repo (`contrastive`, `dae`, `vae`).
+Supports both t‑SNE and PCA as low‑dimensional projections and 2‑D or 3‑D
+scatter plots.  Latent embeddings are **recomputed in memory** (no cache for
+compressed codes).  Works with the three AE checkpoints in the repo
+(`contrastive`, `dae`, `vae`).
 
-Example:
+Example
 
-    python -m utils.visualization_exp \
-        --sbert-cache data/SQUAD/sbert_cache/sbert_2254a38d6b_all-MiniLM-L6-v2.pt \
-        --checkpoint   models/checkpoints/contrastive_ae.pth \
-        --sample-size  1000 \
-        --out          tsne_squad.png
+python -m utils.visualization_exp \
+  --sbert-cache data/SQUAD/sbert_cache/sbert_2254a38d6b_all-MiniLM-L6-v2.pt \
+  --checkpoint  models/checkpoints/contrastive_ae.pth \
+  --projection  pca \
+  --components  3 \
+  --sample-size 1200 \
+  --k-near 10 \
+  --out tsne_cae_3d.png
+
+  
 """
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 from typing import Tuple
 
@@ -24,13 +29,11 @@ import torch
 from evaluation.embedding_visualization import visualize_compressed_vs_original
 
 # ---------------------------------------------------------------------------
-#  Auto-encoder loader (minimal, standalone)                                  
+#  Auto‑encoder loader                                                        
 # ---------------------------------------------------------------------------
 
 def _load_autoencoder(ckpt: str, *, device: torch.device | str = "cpu") -> torch.nn.Module:
-    """Instantiate the right AE class and load weights from *ckpt*."""
-
-    # Heuristics based on filename – adjust if you rename checkpoints
+    """Instantiate the proper AE subclass and load weights from *ckpt*."""
     name = Path(ckpt).name.lower()
     if "contrastive" in name or "cae" in name:
         from models.contrastive_autoencoder import ContrastiveAutoencoder as AE
@@ -41,20 +44,20 @@ def _load_autoencoder(ckpt: str, *, device: torch.device | str = "cpu") -> torch
     else:
         raise ValueError(f"Cannot infer AE type from checkpoint name: {ckpt}")
 
-    # 384->64 is hard-coded in config; change if you train different dims
     model = AE(input_dim=384, latent_dim=64, hidden_dim=512)
     state = torch.load(ckpt, map_location="cpu")
     model.load_state_dict(state)
     return model.to(device).eval()
 
 # ---------------------------------------------------------------------------
-#  Load SBERT pairs from cache                                               
+#  SBERT pairs loader                                                         
 # ---------------------------------------------------------------------------
 
 def _load_sbert_pairs(path: str | Path, n: int, seed: int = 42) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Return (queries, positives) tensors [n, 384] on CPU."""
+    """Return `(queries, positives)` tensors of shape [n, 384] (CPU)."""
     emb = torch.load(path, map_location="cpu")
-    assert emb.dim() == 2 and emb.size(0) % 2 == 0, "Cache must be [2N, D]"
+    if emb.dim() != 2 or emb.size(0) % 2 != 0:
+        raise ValueError("SBERT cache must have shape [2N, D]")
     n_pairs = emb.size(0) // 2
     n = min(n, n_pairs)
     idx = torch.randperm(n_pairs, generator=torch.Generator().manual_seed(seed))[:n]
@@ -66,42 +69,55 @@ def _load_sbert_pairs(path: str | Path, n: int, seed: int = 42) -> Tuple[torch.T
 #  Main                                                                       
 # ---------------------------------------------------------------------------
 
-def main() -> None:  # noqa: D401 – CLI entry-point
-    p = argparse.ArgumentParser("t-SNE visualisation of AE-compressed embeddings")
-    p.add_argument("--sbert-cache", required=True, help=".pt file with cached SBERT [q, ctx] pairs interleaved")
-    p.add_argument("--checkpoint",   required=True, help="Path to trained AE checkpoint (*.pth)")
-    p.add_argument("--sample-size",  type=int, default=1000, help="Number of query–doc pairs to plot (default 1000)")
-    p.add_argument("--perplexity",   type=float, default=30.0, help="t-SNE perplexity")
-    p.add_argument("--out",          default="tsne.png", help="Output figure file (PNG/PDF)")
-    p.add_argument("--seed",         type=int, default=42, help="Random seed for sampling")
-    args = p.parse_args()
+def main() -> None:
+    parser = argparse.ArgumentParser("Visualise AE‑compressed vs. original embeddings")
 
-    # 1. SBERT originals
+    # required paths
+    parser.add_argument("--sbert-cache", required=True, help=".pt file with SBERT cache (queries/ctx interleaved)")
+    parser.add_argument("--checkpoint",   required=True, help="Path to trained AE checkpoint (.pth)")
+
+    # visual options
+    parser.add_argument("--projection", choices=["tsne", "pca"], default="tsne", help="Low‑D projection method")
+    parser.add_argument("--components",  type=int, choices=[2, 3], default=2, help="Number of projection dimensions")
+    parser.add_argument("--perplexity",  type=float, default=30.0, help="t‑SNE perplexity (ignored for PCA)")
+    parser.add_argument("--k-near",      type=int, default=5, help="Nearest‑neighbour threshold for hits")
+    parser.add_argument("--bins",        type=int, default=30, help="Histogram bins for distance plot")
+
+    # sampling & io
+    parser.add_argument("--sample-size", type=int, default=1000, help="Number of query–doc pairs to sample")
+    parser.add_argument("--seed",        type=int, default=42, help="Random seed")
+    parser.add_argument("--out",         default="viz.png", help="Output figure path (PNG/PDF)")
+
+    args = parser.parse_args()
+
+    # 1. Load SBERT originals
     q_orig, d_orig = _load_sbert_pairs(args.sbert_cache, args.sample_size, seed=args.seed)
 
-    # 2. AE latents (in memory)
+    # 2. Compress with AE (on‑the‑fly)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ae = _load_autoencoder(args.checkpoint, device=device)
 
     with torch.no_grad():
         q_comp = ae.encode(q_orig.to(device))
-        if isinstance(q_comp, tuple):  # VAE returns (mu, logvar)
+        if isinstance(q_comp, tuple):
             q_comp = q_comp[0]
         d_comp = ae.encode(d_orig.to(device))
         if isinstance(d_comp, tuple):
             d_comp = d_comp[0]
-        # back to CPU for t-SNE
         q_comp, d_comp = q_comp.cpu(), d_comp.cpu()
 
     # 3. Visualise
     metrics = visualize_compressed_vs_original(
         q_orig, d_orig, q_comp, d_comp,
-        sample_size=1_000,
-        max_lines=200,        # resalta las 200 parejas más cercanas
-        color_by_dist=True,   # verde = muy próximas, rojo = alejadas
-        save_path="tsne.png",
+        projection=args.projection,
+        n_components=args.components,
+        sample_size=args.sample_size,
+        k_near=args.k_near,
+        perplexity=args.perplexity,
+        bins=args.bins,
+        random_state=args.seed,
+        save_path=args.out,
     )
-
 
     print("\nTrustworthiness:")
     for k, v in metrics.items():
