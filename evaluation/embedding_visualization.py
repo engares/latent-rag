@@ -25,8 +25,6 @@ from matplotlib.colors import Normalize
 # ---------------------------------------------------------------------------
 
 
-_MARKER_CYCLE: MutableSequence[str] = ["o","s","D","P","X","^","v","<",">", "o"]
-
 
 def _to_numpy(x: Tensor) -> "np.ndarray":  # type: ignore[name-defined]
     """Detach a tensor and move to CPU as *float32* NumPy array."""
@@ -64,21 +62,12 @@ def _project(
     raise ValueError("method must be 'tsne' or 'pca'")
 
 
-def _build_marker_map(groups: Iterable[str]) -> Mapping[str, str]:
-    """Assign each *group* a marker shape cycling through `_MARKER_CYCLE`."""
-    cycle_iter = cycle(_MARKER_CYCLE)
-    return {grp: next(cycle_iter) for grp in sorted(set(groups))}
+
 
 
 # ---------------------------------------------------------------------------
 # Plotting primitives
 # ---------------------------------------------------------------------------
-
-def _scatter(ax, pts: Tensor, colour: str, marker: str, label: str, **kw):
-    if pts.size(1) == 2:
-        ax.scatter(pts[:, 0], pts[:, 1], c=colour, marker=marker, label=label, **kw)
-    else:
-        ax.scatter(pts[:, 0], pts[:, 1], pts[:, 2], c=colour, marker=marker, label=label, **kw)
 
 
 def _link(ax, p: Tensor, q: Tensor, colour: str):
@@ -181,12 +170,10 @@ def visualize_compressed_vs_original(
     perplexity: float = 30.0,
     bins: int = 30,
     random_state: int = 42,
-    q_groups: Optional[Sequence[str]] = None,
-    k_near_colour_cut: Optional[int] = None,
     save_path: Optional[str] = None,
     save_negatives_path: Optional[str] = None,
 ) -> Dict[str, float]:
-    """Visualise original vs. compressed embeddings and guardar dos figuras:
+    """Visualise original vs. compressed embeddings and save two figures:
       1) scatter + hist/CDF
       2) dist positives vs. negatives."""
 
@@ -199,13 +186,13 @@ def visualize_compressed_vs_original(
         q_o, d_o, q_c, d_c = q_orig, d_orig, q_comp, d_comp
 
 
-    # --- Métricas de recall
+    # Recall
     rank_orig = _rank_positive(q_o, d_o)
     recall_orig = (rank_orig <= k_near).float().mean()
     rank_comp = _rank_positive(q_c, d_c)
     recall_comp = (rank_comp <= k_near).float().mean()
 
-    # --- Proyecciones (solo para la figura 1)
+    # Projections (only for figure 1)
     orig_proj = _project(torch.cat([q_o, d_o]), method=projection,
                          n_components=n_components, perplexity=perplexity, seed=random_state)
     comp_proj = _project(torch.cat([q_c, d_c]), method=projection,
@@ -213,7 +200,7 @@ def visualize_compressed_vs_original(
     q_proj_o, d_proj_o = orig_proj[: len(q_o)], orig_proj[len(q_o):]
     q_proj_c, d_proj_c = comp_proj[: len(q_o)], comp_proj[len(q_o):]
 
-    # --- Distancias del coseno
+    # Cosine distances
     dist_o = 1 - F.cosine_similarity(q_o, d_o, dim=1)
     dist_c = 1 - F.cosine_similarity(q_c, d_c, dim=1)
 
@@ -233,7 +220,6 @@ def visualize_compressed_vs_original(
     _hist_cdf(ax_hist, dist_o, dist_c, bins=bins)
     ax_hist.set_title(f"Pair distance distribution ({projection.upper()} {n_components}-D)")
 
-    # colorbar única
     sm = cm.ScalarMappable(norm=Normalize(vmin=float(min(dist_o.min(), dist_c.min())),
                                          vmax=float(max(dist_o.max(), dist_c.max()))),
                            cmap="viridis_r")
@@ -280,17 +266,18 @@ def plot_positive_vs_negative_distances(
     dist_neg_c = 1 - F.cosine_similarity(q_c, d_neg_c, dim=1)
 
     fig, (axp, axn) = plt.subplots(1, 2, figsize=(12, 5))
+    
     # Distribución originales
-    axp.hist(dist_o.numpy(), bins=bins, alpha=0.6, label="Positives", color="C0")
-    axp.hist(dist_neg_o.numpy(), bins=bins, alpha=0.6, label="Negatives", color="C1")
+    axp.hist(dist_o.numpy(), bins=bins, alpha=0.6, label="Positives", color="yellowgreen")
+    axp.hist(dist_neg_o.numpy(), bins=bins, alpha=0.6, label="Negatives", color="firebrick")
     axp.set_title("Original: q–d⁺ vs q–d⁻")
     axp.set_xlabel("Cosine distance")
     axp.set_ylabel("Frequency")
     axp.legend(frameon=False)
 
     # Distribución comprimidas
-    axn.hist(dist_c.numpy(), bins=bins, alpha=0.6, label="Positives", color="C0")
-    axn.hist(dist_neg_c.numpy(), bins=bins, alpha=0.6, label="Negatives", color="C1")
+    axn.hist(dist_c.numpy(), bins=bins, alpha=0.6, label="Positives", color="yellowgreen")
+    axn.hist(dist_neg_c.numpy(), bins=bins, alpha=0.6, label="Negatives", color="firebrick")
     axn.set_title("Compressed: q–d⁺ vs q–d⁻")
     axn.set_xlabel("Cosine distance")
     axn.legend(frameon=False)
