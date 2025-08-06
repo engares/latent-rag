@@ -167,6 +167,47 @@ from evaluation.generation_metrics import evaluate_generation_bootstrap
 ```
 
 
+Perfecto. Aquí tienes un nuevo apartado **[9. Embedding Visualisation](#embedding-visualisation)** para añadir en tu `README.md`, totalmente integrado con el estilo del proyecto y basado en los módulos que ya has implementado:
+
+
+### Experimental Embedding Visualisation
+
+This module provides intuitive **visual diagnostics** of how well autoencoder-compressed embeddings preserve semantic similarity. It allows direct comparison between **original SBERT embeddings** and their **compressed representations** (via VAE, DAE or CAE).
+
+Supported plots include:
+
+* Low-dimensional **t-SNE or PCA projections** (2D or 3D) of (query, document) pairs.
+* **Colour-coded scatter** plots showing cosine distances.
+* **Histogram + CDF** of pairwise distances before and after compression.
+* **Positive vs. Negative distance distributions**, to visualise separation margins.
+
+Each visualisation is saved to disk automatically.
+
+### Example
+
+```bash
+python -m utils.visualization_exp \
+  --sbert-cache data/SQUAD/sbert_cache/sbert_2254a38d6b_all-MiniLM-L6-v2.pt \
+  --checkpoint  models/checkpoints/contrastive_ae.pth \
+  --projection  tsne \
+  --components  2 \
+  --sample-size 1200 \
+  --k-near 10
+```
+
+This generates:
+
+* `fig/cae_tsne_2d_1200s_10k_perp30.png`:
+  Low-dimensional visualisation + recall and distance histograms.
+* `fig/cae_tsne_2d_1200s_10k_perp30_negatives_distribution.png`:
+  Side-by-side histogram comparing cosine distances:
+
+  * $q \to d^+$ (positives)
+  * $q \to d^-$ (negatives)
+
+
+<br>
+
 ## Project Structure
 
 ```text

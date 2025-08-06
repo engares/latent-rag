@@ -1,7 +1,6 @@
 ### Directory tree for: .
 
 ./
-├── =0.21
 ├── AUTORAG.code-workspace
 ├── README.md
 ├── config/
@@ -10,6 +9,9 @@
 │       └── system_prompt.txt
 ├── data/
 │   ├── SQUAD/
+│   │   ├── sbert_cache/
+│   │   │   ├── sbert_2254a38d6b_all-MiniLM-L6-v2.pt
+│   │   │   └── sbert_7eb48b423e_all-MiniLM-L6-v2.pt
 │   │   ├── squad_contrastive_embeddings.pt
 │   │   ├── squad_dae_embeddings.pt
 │   │   └── squad_vae_embeddings.pt
@@ -29,6 +31,18 @@
 │   ├── embedding_visualization.py
 │   ├── generation_metrics.py
 │   └── retrieval_metrics.py
+├── fig/
+│   ├── cae_tsne_2d_1200s_10k_perp30.png
+│   ├── dae_tsne_2d_1200s_10k_perp30.png
+│   ├── dae_tsne_2d_1200s_10k_perp30_negatives_distribution.png
+│   └── old/
+│       ├── pca_3d.png
+│       ├── tsne.png
+│       ├── tsne_pairs.png
+│       ├── tsne_rank.png
+│       ├── tsne_squad.png
+│       ├── tsne_summary.png
+│       └── viz.png
 ├── generation/
 │   └── generator.py
 ├── logs/
@@ -59,7 +73,8 @@
 │   ├── test_loss_functions.py
 │   ├── test_models.py
 │   ├── test_retrieval.py
-│   └── test_train_scripts.py
+│   ├── test_train_scripts.py
+│   └── test_visualization.py
 ├── tests.ipynb
 ├── training/
 │   ├── loss_functions.py
@@ -69,10 +84,253 @@
 └── utils/
     ├── data_utils.py
     ├── load_config.py
-    └── training_utils.py
+    ├── training_utils.py
+    └── visualization_exp.py
 
-15 directories, 54 files
+18 directories, 67 files
 
+
+### File contents
+
+README.md
+"""
+# rag\_autoencoder\_tfm
+
+A repository for training and evaluating retrieval-augmented generation (RAG) pipelines enhanced by various autoencoder compression methods. Supported variants include:
+
+* Variational Autoencoder (VAE)
+* Denoising Autoencoder (DAE)
+* Contrastive Autoencoder (CAE)
+
+This framework covers from data preparation, model training, retrieval to optional generation with LLMs, and comprehensive evaluation metrics.
+
+---
+
+## Table of Contents
+
+1. [Features](#features)
+2. [Prerequisites](#prerequisites)
+3. [Setup](#setup)
+4. [Configuration](#configuration)
+5. [Data Preparation](#data-preparation)
+6. [Training](#training)
+
+   * [VAE](#vae)
+   * [DAE](#dae)
+   * [CAE](#cae)
+7. [Pipeline Execution](#pipeline-execution)
+8. [Evaluation](#evaluation)
+10. [Project Structure](#project-structure)
+11. [Testing](#testing)
+
+---
+
+## Features
+
+* Encode text embeddings using SBERT and compress with VAE/DAE/CAE.
+* Retrieve top‑k relevant documents using cosine, Euclidean or Mahalanobis similarity.
+* Generate answers via RAG using OpenAI API with custom system prompts.
+* Evaluate retrieval (Recall\@k, MRR, nDCG) and generation (BLEU, ROUGE-L, METEOR) with bootstrap CIs.
+* Configurable via YAML; extensible for other datasets or API providers.
+
+## Prerequisites
+
+* Python ≥ 3.10
+* GPU recommended for large-scale embedding and training. (Trained ona 4060 8GB VRAM)
+* OpenAI API key (set in `.env` as `OPENAI_API_KEY`).
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Setup
+
+1. Clone the repository:
+
+```bash
+
+git clone https://github.com/engares/latent-rag.git
+cd latent-rag
+```
+
+2. Create `.env` with your OpenAI key:
+```ini
+OPENAI_API_KEY=your_api_key_here
+````
+
+3. Adjust paths and hyperparameters in **`config/config.yaml`** as needed.
+
+## Configuration
+
+**`config/config.yaml`** contains:
+
+* Project metadata (name, version)
+* Directory paths (`data_dir`, `checkpoints_dir`, `logs_dir`)
+* Embedding model settings
+* Autoencoder parameters and checkpoints
+* Training hyperparameters (batch size, epochs, LR)
+* Retrieval & generation options
+* Evaluation metrics
+* Logging level and file
+
+System prompt for generation is located in **`config/prompts/system_prompt.txt`**.
+
+## Data Preparation
+
+Data tensors for SQuAD are generated automatically when running training or pipeline. To prepare manually:
+
+```bash
+python -c "from utils.data_utils import ensure_squad_data; ensure_squad_data(output_dir='./data/SQUAD_DELETE')"
+```
+
+This creates:
+
+* `data/SQUAD/squad_vae_embeddings.pt`
+* `data/SQUAD/squad_dae_embeddings.pt`
+* `data/SQUAD/squad_contrastive_embeddings.pt`
+
+## Training
+
+### VAE
+
+```bash
+python training/train_vae.py \
+  --dataset squad \
+  --epochs 50 \
+  --batch_size 128 \
+  --lr 1e-3 \
+  --save_path models/checkpoints/vae_text.pth
+```
+
+### DAE
+
+```bash
+python training/train_dae.py \
+  --dataset squad \
+  --epochs 50 \
+  --batch_size 128 \
+  --lr 1e-3 \
+  --save_path models/checkpoints/dae_text.pth
+```
+
+### CAE
+
+```bash
+python training/train_cae.py \
+  --dataset squad \
+  --epochs 50 \
+  --batch_size 128 \
+  --lr 1e-3 \
+  --save_path models/checkpoints/contrastive_ae.pth
+```
+
+All training scripts support early stopping, checkpointing and configurable device.
+
+## Pipeline Execution
+
+Run the end-to-end RAG pipeline:
+
+```bash
+python main.py --config config/config.yaml --ae_type vae
+```
+
+Replace `--ae_type` with `dae`, `contrastive`, `all` or `none`. The pipeline will:
+
+1. Encode corpus and queries
+2. Retrieve top‑k documents
+3. Optionally generate answers via GPT-4o-mini (if `--generate` is specified)
+4. Evaluate retrieval and generation metrics
+
+To enable the generation step, include the `--generate` flag:
+
+```bash
+python main.py --config config/config.yaml --ae_type vae --generate
+```
+
+## Evaluation
+
+* Retrieval metrics: per-query and aggregated Recall\@k, MRR, nDCG.
+* Generation metrics: BLEU, ROUGE-L, METEOR with 95% bootstrap CIs.
+* Visualise embeddings via **`evaluation/autoencoder_metrics.py`** (t-SNE plots).
+
+Commands:
+
+```python
+from evaluation.retrieval_metrics import evaluate_retrieval
+from evaluation.generation_metrics import evaluate_generation_bootstrap
+```
+
+
+Perfecto. Aquí tienes un nuevo apartado **[9. Embedding Visualisation](#embedding-visualisation)** para añadir en tu `README.md`, totalmente integrado con el estilo del proyecto y basado en los módulos que ya has implementado:
+
+
+### Experimental Embedding Visualisation
+
+This module provides intuitive **visual diagnostics** of how well autoencoder-compressed embeddings preserve semantic similarity. It allows direct comparison between **original SBERT embeddings** and their **compressed representations** (via VAE, DAE or CAE).
+
+Supported plots include:
+
+* Low-dimensional **t-SNE or PCA projections** (2D or 3D) of (query, document) pairs.
+* **Colour-coded scatter** plots showing cosine distances.
+* **Histogram + CDF** of pairwise distances before and after compression.
+* **Positive vs. Negative distance distributions**, to visualise separation margins.
+
+Each visualisation is saved to disk automatically.
+
+### Example
+
+```bash
+python -m utils.visualization_exp \
+  --sbert-cache data/SQUAD/sbert_cache/sbert_2254a38d6b_all-MiniLM-L6-v2.pt \
+  --checkpoint  models/checkpoints/contrastive_ae.pth \
+  --projection  tsne \
+  --components  2 \
+  --sample-size 1200 \
+  --k-near 10
+```
+
+This generates:
+
+* `fig/cae_tsne_2d_1200s_10k_perp30.png`:
+  Low-dimensional visualisation + recall and distance histograms.
+* `fig/cae_tsne_2d_1200s_10k_perp30_negatives_distribution.png`:
+  Side-by-side histogram comparing cosine distances:
+
+  * $q \to d^+$ (positives)
+  * $q \to d^-$ (negatives)
+
+
+<br>
+
+## Project Structure
+
+```text
+src/
+├── config/           # YAML and prompts
+├── data/             # Embedding tensors and loaders
+├── evaluation/       # Metrics and visualisations
+├── generation/       # RAG generator
+├── models/           # AE implementations
+├── retrieval/        # Embeddings & retriever
+├── training/         # Training scripts and loss functions
+├── utils/            # Helpers (config, data, logging)
+├── test/             # Unit tests (pytest)
+├── main.py           # CLI orchestration
+├── requirements.txt
+└── style_guide.md
+```
+
+## Testing
+
+Run all tests via pytest:
+
+```bash
+PYTHONPATH=. pytest -q
+```
+
+Coverage threshold: 80% (unit tests for data processing, models, retrieval, evaluation, training scripts).
 
 
 """
@@ -373,26 +631,295 @@ def _print_sig(res, queries, gold, metric):
 
 evaluation/embedding_visualization.py
 """
+from __future__ import annotations
+
+from collections import defaultdict
+from itertools import cycle
+from typing import Dict, Iterable, List, Mapping, MutableSequence, Optional, Sequence
+
+import matplotlib.cm as cm
+import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
-import seaborn as sns
+import torch
+import torch.nn.functional as F
+from matplotlib.colors import Colormap
+from matplotlib.ticker import PercentFormatter
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 – required for 3-D scatter
+from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
-from typing import Tuple
+Tensor = torch.Tensor  
+
+import matplotlib.cm as cm
+from matplotlib.colors import Normalize
+
+
+# ---------------------------------------------------------------------------
+# Helper utilities
+# ---------------------------------------------------------------------------
 
 
 
-def visualize_embeddings(embeddings: torch.Tensor, labels: torch.Tensor = None, title: str = "Embeddings Visualization"):
-    """Proyección 2D de los embeddings usando t-SNE."""
-    tsne = TSNE(n_components=2, random_state=42)
-    emb_2d = tsne.fit_transform(embeddings.cpu().numpy())
+def _to_numpy(x: Tensor) -> "np.ndarray":  # type: ignore[name-defined]
+    """Detach a tensor and move to CPU as *float32* NumPy array."""
+    return x.detach().cpu().float().numpy()
 
-    plt.figure(figsize=(8, 6))
-    if labels is not None:
-        sns.scatterplot(x=emb_2d[:, 0], y=emb_2d[:, 1], hue=labels.cpu().numpy(), palette="tab10")
+
+def _rank_positive(q: Tensor, d: Tensor) -> Tensor:
+    """Return **1-based** rank of each positive document using cosine similarity."""
+    sim = F.cosine_similarity(q.unsqueeze(1), d.unsqueeze(0), dim=-1)
+    return sim.argsort(dim=1, descending=True).argsort(dim=1).diagonal() + 1
+
+
+def _project(
+    x: Tensor,
+    *,
+    method: str,
+    n_components: int,
+    perplexity: float,
+    seed: int,
+) -> Tensor:
+    """Return a low-dimensional projection via t-SNE or PCA."""
+    if method == "tsne":
+        tsne = TSNE(
+            n_components=n_components,
+            perplexity=perplexity,
+            metric="cosine",
+            init="pca",
+            max_iter=1_000,
+            random_state=seed,
+        )
+        return torch.from_numpy(tsne.fit_transform(_to_numpy(x))).float()
+    if method == "pca":
+        pca = PCA(n_components=n_components, random_state=seed)
+        return torch.from_numpy(pca.fit_transform(_to_numpy(x))).float()
+    raise ValueError("method must be 'tsne' or 'pca'")
+
+
+
+
+
+# ---------------------------------------------------------------------------
+# Plotting primitives
+# ---------------------------------------------------------------------------
+
+
+def _link(ax, p: Tensor, q: Tensor, colour: str):
+    if p.numel() == 2:            # 2-D
+        ax.plot([p[0], q[0]], [p[1], q[1]],
+                color=colour, linewidth=0.8, alpha=0.8)
+    else:                         # 3-D
+        ax.plot([p[0], q[0]], [p[1], q[1]], [p[2], q[2]],
+                color=colour, linewidth=0.8, alpha=0.8)
+
+
+def _scatter_pairs(
+    ax,
+    q_emb: Tensor,
+    d_emb: Tensor,
+    dist: Tensor,
+    *,
+    cmap_name: str = "viridis_r",
+    alpha: float = 0.3,
+    s: int = 30,
+    max_links: int = 10,
+):
+    """
+    Dibuja las parejas (query-doc) coloreadas según la distancia del coseno.
+
+    Params
+    ------
+    q_emb, d_emb : (N, 2|3)  Embeddings proyectados de queries y docs.
+    dist         : (N,)      Distancias del coseno ||q - d|| en el espacio original.
+    max_links    : int       Número máximo de enlaces (los más disimilares).
+    """
+    dim = q_emb.size(1)
+    norm = Normalize(vmin=float(dist.min()), vmax=float(dist.max()))
+    cmap = cm.get_cmap(cmap_name)
+
+    # Matriz RGBA con alpha constante
+    colors = cmap(norm(_to_numpy(dist)))
+    colors[:, -1] = alpha
+
+    # Dispersión de queries
+    ax.scatter(
+        q_emb[:, 0], q_emb[:, 1],
+        *(q_emb[:, 2].T,) if dim == 3 else (),
+        c=colors, marker="o", s=s, label="Query"
+    )
+    # Dispersión de docs
+    ax.scatter(
+        d_emb[:, 0], d_emb[:, 1],
+        *(d_emb[:, 2].T,) if dim == 3 else (),
+        c=colors, marker="^", s=s, label="Doc"
+    )
+
+    # Índices de las distancias más altas
+    top_idx = dist.topk(min(max_links, len(dist))).indices
+
+    # Enlaces coloreados (solo top-k)
+    for i in top_idx:
+        _link(ax, q_emb[i], d_emb[i], colour=colors[i])
+
+    ax.set_xticks([]); ax.set_yticks([])
+    if dim == 3:
+        ax.set_zticks([])
+    ax.legend(frameon=False, fontsize=7, loc="upper right")
+
+
+def _hist_cdf(ax: "plt.Axes", d1: Tensor, d2: Tensor, *, bins: int) -> None:
+    """Histogram + CDF of two 1-D distance distributions."""
+    cmap = cm.get_cmap("viridis")  # Use the viridis colormap
+    color1 = cmap(0.3)  # A color from the lower range of viridis
+    color2 = cmap(0.7)  # A color from the higher range of viridis
+
+    # Histogram
+    ax.hist(d1.numpy(), bins=bins, alpha=0.5, label="Original dist.", color=color1)
+    ax.hist(d2.numpy(), bins=bins, alpha=0.5, label="Compressed dist.", color=color2)
+    ax.set_xlabel("Pair cosine distance ")
+    ax.set_ylabel("Frequency")
+    ax.legend(frameon=False, fontsize=7)
+
+    # CDF
+    ax2 = ax.twinx()
+    for data, lbl, color in ((d1, "Original CDF", color1), (d2, "Compressed CDF", color2)):
+        sorted_vals = torch.sort(data).values
+        cdf = torch.arange(1, len(data) + 1) / len(data)
+        ax2.plot(sorted_vals, cdf, label=lbl, color=color)
+    ax2.yaxis.set_major_formatter(PercentFormatter(1.0))
+    ax2.set_ylabel("CDF")
+    ax2.legend(frameon=False, fontsize=7, loc="lower right")
+
+
+def visualize_compressed_vs_original(
+    q_orig: Tensor,
+    d_orig: Tensor,
+    q_comp: Tensor,
+    d_comp: Tensor,
+    *,
+    projection: str = "tsne",
+    n_components: int = 2,
+    sample_size: int = 1_000,
+    k_near: int = 5,
+    perplexity: float = 30.0,
+    bins: int = 30,
+    random_state: int = 42,
+    save_path: Optional[str] = None,
+    save_negatives_path: Optional[str] = None,
+) -> Dict[str, float]:
+    """Visualise original vs. compressed embeddings and save two figures:
+      1) scatter + hist/CDF
+      2) dist positives vs. negatives."""
+
+    torch.manual_seed(random_state)
+    N = len(q_orig)
+    if sample_size < N:
+        idx = torch.randperm(N)[:sample_size]
+        q_o, d_o, q_c, d_c = q_orig[idx], d_orig[idx], q_comp[idx], d_comp[idx]
     else:
-        sns.scatterplot(x=emb_2d[:, 0], y=emb_2d[:, 1])
+        q_o, d_o, q_c, d_c = q_orig, d_orig, q_comp, d_comp
 
-    plt.title(title)
+
+    # Recall
+    rank_orig = _rank_positive(q_o, d_o)
+    recall_orig = (rank_orig <= k_near).float().mean()
+    rank_comp = _rank_positive(q_c, d_c)
+    recall_comp = (rank_comp <= k_near).float().mean()
+
+    # Projections (only for figure 1)
+    orig_proj = _project(torch.cat([q_o, d_o]), method=projection,
+                         n_components=n_components, perplexity=perplexity, seed=random_state)
+    comp_proj = _project(torch.cat([q_c, d_c]), method=projection,
+                         n_components=n_components, perplexity=perplexity, seed=random_state)
+    q_proj_o, d_proj_o = orig_proj[: len(q_o)], orig_proj[len(q_o):]
+    q_proj_c, d_proj_c = comp_proj[: len(q_o)], comp_proj[len(q_o):]
+
+    # Cosine distances
+    dist_o = 1 - F.cosine_similarity(q_o, d_o, dim=1)
+    dist_c = 1 - F.cosine_similarity(q_c, d_c, dim=1)
+
+    # ========== FIGURA 1: scatter + hist/CDF ==========
+    fig = plt.figure(figsize=(14, 10 if n_components==2 else 12))
+    gs = gridspec.GridSpec(2, 3, width_ratios=[1,1,0.05], height_ratios=[3,2])
+
+    ax1 = fig.add_subplot(gs[0,0], projection="3d" if n_components==3 else None)
+    ax2 = fig.add_subplot(gs[0,1], projection="3d" if n_components==3 else None)
+    cbar_ax = fig.add_subplot(gs[0,2])
+    ax_hist = fig.add_subplot(gs[1,:2])
+
+    _scatter_pairs(ax1, q_proj_o, d_proj_o, dist_o)
+    _scatter_pairs(ax2, q_proj_c, d_proj_c, dist_c)
+    ax1.set_title(f"Original {projection.upper()} – Recall@{k_near}: {recall_orig:.1%}", fontsize=10)
+    ax2.set_title(f"Compressed {projection.upper()} – Recall@{k_near}: {recall_comp:.1%}", fontsize=10)
+    _hist_cdf(ax_hist, dist_o, dist_c, bins=bins)
+    ax_hist.set_title(f"Pair distance distribution ({projection.upper()} {n_components}-D)")
+
+    sm = cm.ScalarMappable(norm=Normalize(vmin=float(min(dist_o.min(), dist_c.min())),
+                                         vmax=float(max(dist_o.max(), dist_c.max()))),
+                           cmap="viridis_r")
+    sm.set_array([])
+    fig.colorbar(sm, cax=cbar_ax).set_label("Cosine distance", rotation=270, labelpad=15)
+
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
     plt.show()
+
+    plot_positive_vs_negative_distances(
+        q_o, d_o, q_c, d_c,
+        bins=bins,
+        save_negatives_path=save_negatives_path
+    )
+
+    return {
+        "recall_original": float(recall_orig),
+        "recall_compressed": float(recall_comp),
+    }
+
+
+def plot_positive_vs_negative_distances(
+    q_o: Tensor,
+    d_o: Tensor,
+    q_c: Tensor,
+    d_c: Tensor,
+    *,
+    bins: int,
+    save_negatives_path: Optional[str] = None
+) -> None:
+    """Plot positive vs. negative distances for original and compressed embeddings."""
+    # Muestreo de negativos (una permutación aleatoria)
+    perm = torch.randperm(len(d_o))
+    neg_idx = torch.where(perm == torch.arange(len(d_o)), (perm + 1) % len(d_o), perm)
+    d_neg_o = d_o[neg_idx]
+    d_neg_c = d_c[neg_idx]
+
+    # Calcular distancias del coseno para positivos y negativos
+    dist_o = 1 - F.cosine_similarity(q_o, d_o, dim=1)
+    dist_c = 1 - F.cosine_similarity(q_c, d_c, dim=1)
+    dist_neg_o = 1 - F.cosine_similarity(q_o, d_neg_o, dim=1)
+    dist_neg_c = 1 - F.cosine_similarity(q_c, d_neg_c, dim=1)
+
+    fig, (axp, axn) = plt.subplots(1, 2, figsize=(12, 5))
+    
+    # Distribución originales
+    axp.hist(dist_o.numpy(), bins=bins, alpha=0.6, label="Positives", color="yellowgreen")
+    axp.hist(dist_neg_o.numpy(), bins=bins, alpha=0.6, label="Negatives", color="firebrick")
+    axp.set_title("Original: q–d⁺ vs q–d⁻")
+    axp.set_xlabel("Cosine distance")
+    axp.set_ylabel("Frequency")
+    axp.legend(frameon=False)
+
+    # Distribución comprimidas
+    axn.hist(dist_c.numpy(), bins=bins, alpha=0.6, label="Positives", color="yellowgreen")
+    axn.hist(dist_neg_c.numpy(), bins=bins, alpha=0.6, label="Negatives", color="firebrick")
+    axn.set_title("Compressed: q–d⁺ vs q–d⁻")
+    axn.set_xlabel("Cosine distance")
+    axn.legend(frameon=False)
+
+    fig.tight_layout()
+    if save_negatives_path:
+        fig.savefig(save_negatives_path, dpi=300, bbox_inches="tight")
+    plt.show()
+
 """
 
 evaluation/generation_metrics.py
@@ -1560,7 +2087,7 @@ do
 
   # Skip files with undesired extensions
   case "$FILE" in
-    *.pt|*.pth|*.ipynb|*.log)
+    *.pt|*.pth|*.ipynb|*.log|*.tmp|*.bak|*.swp|*.zip|*.tar|*.gz|*.rar|*.DS_Store|*.png|*.jpg|*.jpeg|*.gif|*.bmp|*.tiff|*.ico|*.webp|*.svg|*.mp4|*.avi|*.mkv|*.mov|*.wmv|*.flv|*.mp3|*.wav|*.ogg|*.code-workspace|*.vscode|*.idea|*.git|*.svn|*.hg)
       continue
       ;;
   esac
@@ -2241,6 +2768,64 @@ def test_train_cae_runs(monkeypatch):
 
 """
 
+test/test_visualization.py
+"""
+import pytest
+import torch
+import os
+from evaluation.embedding_visualization import visualize_compressed_vs_original
+
+# Small synthetic dataset: 10 query–doc pairs
+@pytest.fixture
+def dummy_embeddings():
+    torch.manual_seed(42)
+    N, D = 10, 384
+    q_orig = torch.randn(N, D)
+    d_orig = torch.randn(N, D)
+
+    # compressed = slight noise + projection
+    q_comp = q_orig[:, :64] + 0.01 * torch.randn(N, 64)
+    d_comp = d_orig[:, :64] + 0.01 * torch.randn(N, 64)
+
+    return q_orig, d_orig, q_comp, d_comp
+
+
+def test_visualization_outputs(tmp_path, dummy_embeddings):
+    q_orig, d_orig, q_comp, d_comp = dummy_embeddings
+
+    save_path = tmp_path / "viz.png"
+    neg_path  = tmp_path / "viz_neg.png"
+
+    metrics = visualize_compressed_vs_original(
+        q_orig,
+        d_orig,
+        q_comp,
+        d_comp,
+        projection="pca",
+        n_components=2,
+        sample_size=10,
+        k_near=3,
+        bins=5,
+        random_state=42,
+        save_path=str(save_path),
+        save_negatives_path=str(neg_path),
+    )
+
+    # Check files exist
+    assert save_path.exists(), "Main figure not saved"
+    assert neg_path.exists(), "Negative distribution figure not saved"
+
+    # Check metrics returned
+    assert isinstance(metrics, dict), "Output is not a dictionary"
+    assert "recall_original" in metrics
+    assert "recall_compressed" in metrics
+
+    # Check reasonable range
+    assert 0.0 <= metrics["recall_original"] <= 1.0
+    assert 0.0 <= metrics["recall_compressed"] <= 1.0
+
+"""
+
 training/loss_functions.py
 """
 # /training/loss_functions.py
@@ -2841,7 +3426,7 @@ utils/data_utils.py
 # /utils/data_utils.py
 from __future__ import annotations
 import os
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 
 import torch
 from datasets import load_dataset
@@ -2851,7 +3436,7 @@ import random
 from torch.utils.data import Subset
 
 from pathlib import Path
-from typing import Dict, Optional
+from hashlib import sha1
 
 def _compute_embeddings(
     texts: List[str],
@@ -2874,7 +3459,58 @@ def _jaccard_sim(a: str, b: str) -> float:
     union = a_set | b_set
     return len(inter) / len(union) if union else 0.0
 
-def ensure_uda_data(
+def _texts_fingerprint(texts: List[str]) -> str:
+    """
+    Devuelve un hash abreviado (10 hex) de la secuencia de textos.
+    El orden de los textos importa, así garantizamos reproducibilidad.
+    """
+    h = sha1()
+    for t in texts:
+        h.update(t.encode("utf-8"))
+    return h.hexdigest()[:10]                # 40 bits bastan para colisiones muy raras
+
+
+def ensure_sbert_cache(
+    texts: List[str],
+    *,
+    model_name: str,
+    cache_dir: str = "./data/SBERT",
+    batch_size: int = 64,
+    force: bool = False,
+) -> torch.Tensor:
+    """
+    Calcula (o reutiliza) los embeddings de SBERT y los persiste en disco.
+
+    Args
+    ----
+    texts       : Lista de cadenas a codificar.
+    model_name  : Identificador HuggingFace / Sentence-Transformers del modelo.
+    cache_dir   : Carpeta donde almacenar los .pt (creada si no existe).
+    batch_size  : Tamaño de lote para _compute_embeddings.
+    force       : Si True, rehace el cálculo aunque exista el fichero.
+
+    Returns
+    -------
+    Tensor CPU float32 de dimensión [N × D].
+    """
+    os.makedirs(cache_dir, exist_ok=True)
+
+    fp        = _texts_fingerprint(texts)
+    model_tag = model_name.split("/")[-1]
+    fname     = f"sbert_{fp}_{model_tag}.pt"
+    path      = os.path.join(cache_dir, fname)
+
+    if not force and os.path.exists(path):
+        return torch.load(path, map_location="cpu")
+
+    print(f"[INFO] SBERT cache miss → codificando {len(texts):,} textos …")
+    st_model  = SentenceTransformer(model_name)
+    emb       = _compute_embeddings(texts, st_model, batch_size=batch_size)
+    torch.save(emb, path)
+    print(f"[OK]  SBERT embeddings guardados → {path}")
+    return emb
+
+def ensure_uda_data( # EN DESUSO
     *,
     output_dir: str = "./data/",
     max_samples: Optional[int] = None,
@@ -2979,14 +3615,15 @@ def ensure_squad_data(
     include_unanswerable: bool = False,
     force: bool = False,
 ) -> None:
-    """Generate VAE / DAE / CAE embedding tensors from **SQuAD v1/v2**.
-
-    The tensors are stored on disk using the same structure as the UDA helper,
-    so training scripts remain unchanged.  Filenames:
+    """
+    Pre-procesa **SQuAD v1/v2** y genera los tensores de entrenamiento:
 
         squad_vae_embeddings.pt
         squad_dae_embeddings.pt
         squad_contrastive_embeddings.pt
+
+    Ahorra tiempo reutilizando una única caché SBERT para queries y
+    contextos positivos; sólo los negativos se codifican aparte.
     """
     os.makedirs(output_dir, exist_ok=True)
 
@@ -2994,19 +3631,19 @@ def ensure_squad_data(
     dae_path         = os.path.join(output_dir, "squad_dae_embeddings.pt")
     contrastive_path = os.path.join(output_dir, "squad_contrastive_embeddings.pt")
 
-    # --------------------------------------------------------------------- #
-    #  Early exit if everything is already cached                           #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  0. Early-exit si todo existe                                       #
+    # ------------------------------------------------------------------ #
     if (
         not force
         and all(os.path.exists(p) for p in (vae_path, dae_path, contrastive_path))
     ):
-        print("[INFO] SQuAD embeddings already prepared nothing to do.")
+        print("[INFO] SQuAD embeddings already prepared — nothing to do.")
         return
 
-    # --------------------------------------------------------------------- #
-    #  1. Load SQuAD                                                        #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  1. Cargar SQuAD                                                   #
+    # ------------------------------------------------------------------ #
     ds_name = "squad_v2" if include_unanswerable else "squad"
     print(f"[INFO] Loading {ds_name} …")
     squad = load_dataset(ds_name, split="train")
@@ -3014,9 +3651,9 @@ def ensure_squad_data(
         squad = squad.select(range(min(max_samples, len(squad))))
     print(f"[INFO] SQuAD loaded with {len(squad):,} examples.")
 
-    # --------------------------------------------------------------------- #
-    #  2. Build positive contexts and contrastive triples                   #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  2. Construir textos y tripletas                                   #
+    # ------------------------------------------------------------------ #
     clean_texts: List[str] = []
     contrastive_triples: List[Tuple[str, str, str]] = []
 
@@ -3026,7 +3663,7 @@ def ensure_squad_data(
         if not q or not ctx:
             continue
 
-        # ----------------- simple negative mining ------------------------ #
+        # -------- obtener negativo poco parecido ----------------------- #
         neg = None
         for _ in range(10):
             j = random.randint(0, len(squad) - 1)
@@ -3039,23 +3676,30 @@ def ensure_squad_data(
         if neg is None:
             continue
 
-        clean_texts.extend([q, ctx])              # query + positive context
+        clean_texts.extend((q, ctx))               # [q1, ctx1, q2, ctx2, ...]
         contrastive_triples.append((q, ctx, neg))
 
     print(f"[INFO] Contrastive triples generated: {len(contrastive_triples):,}")
 
-    # --------------------------------------------------------------------- #
-    #  3. Encode with SBERT                                                 #
-    # --------------------------------------------------------------------- #
-    print(f"[INFO] Loading SBERT '{base_model_name}' …")
-    st_model = SentenceTransformer(base_model_name)
+    # ------------------------------------------------------------------ #
+    #  3. Embeddings SBERT (una sola llamada)                            #
+    # ------------------------------------------------------------------ #
+    print("[INFO] Fetching / caching SBERT embeddings …")
+    cache_dir  = os.path.join(output_dir, "sbert_cache")
+    target_emb = ensure_sbert_cache(
+        clean_texts,
+        model_name=base_model_name,
+        cache_dir=cache_dir,
+        batch_size=64,
+    )  # shape [2·N, D]
 
-    print("[INFO] Encoding queries + positive contexts …")
-    target_emb = _compute_embeddings(clean_texts, st_model)   # shape [N × D]
+    # desinterlevar: pares (q, ctx) -> índices pares / impares
+    q_emb_pos = target_emb[0::2]   # consultas
+    p_emb_pos = target_emb[1::2]   # contextos positivos
 
-    # --------------------------------------------------------------------- #
-    #  4. Save VAE and DAE variants                                         #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  4. Guardar VAE / DAE                                              #
+    # ------------------------------------------------------------------ #
     if force or not os.path.exists(vae_path):
         torch.save({"input": target_emb, "target": target_emb.clone()}, vae_path)
         print(f"[OK]  VAE embeddings   → {vae_path}")
@@ -3065,17 +3709,21 @@ def ensure_squad_data(
         torch.save({"input": input_emb, "target": target_emb}, dae_path)
         print(f"[OK]  DAE embeddings   → {dae_path}")
 
-    # --------------------------------------------------------------------- #
-    #  5. Save contrastive triplets                                         #
-    # --------------------------------------------------------------------- #
+    # ------------------------------------------------------------------ #
+    #  5. Guardar tripletas contrastivas                                 #
+    # ------------------------------------------------------------------ #
     if force or not os.path.exists(contrastive_path):
-        print("[INFO] Encoding triplets …")
-        qs, ps, ns = zip(*contrastive_triples)
-        q_emb = _compute_embeddings(list(qs), st_model)
-        p_emb = _compute_embeddings(list(ps), st_model)
-        n_emb = _compute_embeddings(list(ns), st_model)
+        print("[INFO] Encoding negatives and saving triplets …")
+        # solo los negativos requieren consulta a la caché (puede existir)
+        ns = [neg for _, _, neg in contrastive_triples]
+        n_emb = ensure_sbert_cache(ns, model_name=base_model_name, cache_dir=cache_dir)
+
         torch.save(
-            {"query": q_emb, "positive": p_emb, "negative": n_emb},
+            {
+                "query":     q_emb_pos,
+                "positive":  p_emb_pos,
+                "negative":  n_emb,
+            },
             contrastive_path,
         )
         print(f"[OK]  Contrastive embeddings → {contrastive_path}")
@@ -3287,5 +3935,254 @@ def resolve_device(device_str: str | None = None) -> str:
         return device_str
     return "cuda" if torch.cuda.is_available() else "cpu"
 
+"""
+
+utils/visualization_exp.py
+"""
+"""CLI helper — visualise compressed vs. original SBERT embeddings.
+
+Supports both t‑SNE and PCA as low‑dimensional projections and 2‑D or 3‑D
+scatter plots.  Latent embeddings are **recomputed in memory** (no cache for
+compressed codes).  Works with the three AE checkpoints in the repo
+(`contrastive`, `dae`, `vae`).
+
+Example
+
+python -m utils.visualization_exp \
+  --sbert-cache data/SQUAD/sbert_cache/sbert_2254a38d6b_all-MiniLM-L6-v2.pt \
+  --checkpoint  models/checkpoints/contrastive_ae.pth \
+  --projection  tsne \
+  --components  2 \
+  --sample-size 1200 \
+  --k-near 10 
+
+  
+"""
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+from typing import Tuple
+
+import torch
+
+from evaluation.embedding_visualization import visualize_compressed_vs_original
+
+# ---------------------------------------------------------------------------
+#  Auto‑encoder loader                                                        
+# ---------------------------------------------------------------------------
+
+def _load_autoencoder(ckpt: str, *, device: torch.device | str = "cpu") -> torch.nn.Module:
+    """Instantiate the proper AE subclass and load weights from *ckpt*."""
+    name = Path(ckpt).name.lower()
+    if "contrastive" in name or "cae" in name:
+        from models.contrastive_autoencoder import ContrastiveAutoencoder as AE
+    elif "dae" in name:
+        from models.denoising_autoencoder import DenoisingAutoencoder as AE
+    elif "vae" in name:
+        from models.variational_autoencoder import VariationalAutoencoder as AE
+    else:
+        raise ValueError(f"Cannot infer AE type from checkpoint name: {ckpt}")
+
+    model = AE(input_dim=384, latent_dim=64, hidden_dim=512)
+    state = torch.load(ckpt, map_location="cpu")
+    model.load_state_dict(state)
+    return model.to(device).eval()
+
+# ---------------------------------------------------------------------------
+#  SBERT pairs loader                                                         
+# ---------------------------------------------------------------------------
+
+def _load_sbert_pairs(path: str | Path, n: int, seed: int = 42) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Return `(queries, positives)` tensors of shape [n, 384] (CPU)."""
+    emb = torch.load(path, map_location="cpu")
+    if emb.dim() != 2 or emb.size(0) % 2 != 0:
+        raise ValueError("SBERT cache must have shape [2N, D]")
+    n_pairs = emb.size(0) // 2
+    n = min(n, n_pairs)
+    idx = torch.randperm(n_pairs, generator=torch.Generator().manual_seed(seed))[:n]
+    q_idx = 2 * idx
+    d_idx = q_idx + 1
+    return emb[q_idx], emb[d_idx]
+
+# ---------------------------------------------------------------------------
+#  Helpers
+# ---------------------------------------------------------------------------
+
+
+def _infer_ae_type(ckpt_name: str) -> str:
+    """Return a short tag identifying the AE flavour."""
+    lower = ckpt_name.lower()
+    if "contrastive" in lower or "cae" in lower:
+        return "cae"
+    if "dae" in lower:
+        return "dae"
+    if "vae" in lower:
+        return "vae"
+    return "ae"
+
+
+def _build_default_path(
+    ckpt: str,
+    *,
+    projection: str,
+    n_components: int,
+    sample_size: int,
+    k_near: int,
+    perplexity: float,
+) -> Path:
+    """Compose a descriptive file name and ensure ``fig/`` exists.
+
+    The directory is created with parents if missing.
+    """
+    ae_tag = _infer_ae_type(Path(ckpt).stem)
+    fname = f"{ae_tag}_{projection}_{n_components}d_{sample_size}s_{k_near}k"
+    if projection == "tsne":
+        fname += f"_perp{int(perplexity)}"
+    fname += ".png"
+
+    fig_dir = Path("fig")  # ← default relative folder
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    return fig_dir / fname
+
+
+# ---------------------------------------------------------------------------
+#  Main
+# ---------------------------------------------------------------------------
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        "Visualise AE-compressed vs. original embeddings"
+    )
+
+    # required paths
+    parser.add_argument(
+        "--sbert-cache",
+        required=True,
+        help=".pt file with SBERT cache (queries/ctx interleaved)",
+    )
+    parser.add_argument(
+        "--checkpoint",
+        required=True,
+        help="Path to trained AE checkpoint (.pth)",
+    )
+
+    # visual options
+    parser.add_argument(
+        "--projection",
+        choices=["tsne", "pca"],
+        default="tsne",
+        help="Low-D projection method",
+    )
+    parser.add_argument(
+        "--components",
+        type=int,
+        choices=[2, 3],
+        default=2,
+        help="Number of projection dimensions",
+    )
+    parser.add_argument(
+        "--perplexity",
+        type=float,
+        default=30.0,
+        help="t-SNE perplexity (ignored for PCA)",
+    )
+    parser.add_argument(
+        "--k-near",
+        type=int,
+        default=5,
+        help="Nearest-neighbour threshold for hits",
+    )
+    parser.add_argument(
+        "--bins",
+        type=int,
+        default=30,
+        help="Histogram bins for distance plot",
+    )
+
+    # sampling & io
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=1000,
+        help="Number of query–doc pairs to sample",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed",
+    )
+    parser.add_argument(
+        "--out",
+        default=None,  # ← NEW: None triggers automatic path generation
+        help=(
+            "Output figure path (PNG/PDF).  If omitted, the file is "
+            "saved to ./fig/<params>.png"
+        ),
+    )
+
+    args = parser.parse_args()
+
+    # ------------------------------------------------------------------ #
+    # 1. Load SBERT originals
+    # ------------------------------------------------------------------ #
+    q_orig, d_orig = _load_sbert_pairs(args.sbert_cache, args.sample_size, seed=args.seed)
+
+    # ------------------------------------------------------------------ #
+    # 2. Compress with AE (on-the-fly)
+    # ------------------------------------------------------------------ #
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    ae = _load_autoencoder(args.checkpoint, device=device)
+
+    with torch.no_grad():
+        q_comp = ae.encode(q_orig.to(device))
+        if isinstance(q_comp, tuple):
+            q_comp = q_comp[0]
+        d_comp = ae.encode(d_orig.to(device))
+        if isinstance(d_comp, tuple):
+            d_comp = d_comp[0]
+        q_comp, d_comp = q_comp.cpu(), d_comp.cpu()
+
+    # ------------------------------------------------------------------ #
+    # 3. Determine output path                                           #
+    # ------------------------------------------------------------------ #
+    if args.out is None:  # ← NEW
+        args.out = _build_default_path(
+            args.checkpoint,
+            projection=args.projection,
+            n_components=args.components,
+            sample_size=args.sample_size,
+            k_near=args.k_near,
+            perplexity=args.perplexity,
+        )
+
+    # ------------------------------------------------------------------ #
+    # 4. Visualise                                                       #
+    # ------------------------------------------------------------------ #
+    metrics = visualize_compressed_vs_original(
+        q_orig,
+        d_orig,
+        q_comp,
+        d_comp,
+        projection=args.projection,
+        n_components=args.components,
+        sample_size=args.sample_size,
+        k_near=args.k_near,
+        perplexity=args.perplexity,
+        bins=args.bins,
+        random_state=args.seed,
+        save_path=str(args.out),  # ensure Path → str
+        save_negatives_path=str(args.out).replace(".png", "_negatives_distribution.png")  # Save negatives plot
+    )
+
+
+
+    print(f"Figure saved  {args.out}\n")
+
+
+if __name__ == "__main__":
+    main()
 """
 

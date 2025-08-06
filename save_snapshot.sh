@@ -61,7 +61,7 @@ do
 
   # Skip files with undesired extensions
   case "$FILE" in
-    *.pt|*.pth|*.ipynb|*.log)
+    *.pt|*.pth|*.ipynb|*.log|*.tmp|*.bak|*.swp|*.zip|*.tar|*.gz|*.rar|*.DS_Store|*.png|*.jpg|*.jpeg|*.gif|*.bmp|*.tiff|*.ico|*.webp|*.svg|*.mp4|*.avi|*.mkv|*.mov|*.wmv|*.flv|*.mp3|*.wav|*.ogg|*.code-workspace|*.vscode|*.idea|*.git|*.svn|*.hg)
       continue
       ;;
   esac
