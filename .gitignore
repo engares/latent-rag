@@ -7,15 +7,7 @@ __pycache__/
 .env/
 
 *.parquet
-
-# Remove data
-data/SQUAD/*.pt
-
-data/UDA/*.pt
-
-# Ignore large .pt files
-data/SQUAD/sbert_cache/*.pt
-data/SQUAD2/*.pt
+*.pt
 
 *.png
 
