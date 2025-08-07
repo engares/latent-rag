@@ -6,6 +6,8 @@ __pycache__/
 .env
 .env/
 
+*.parquet
+
 # Remove data
 data/SQUAD/*.pt
 

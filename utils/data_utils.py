@@ -1,7 +1,7 @@
 # /utils/data_utils.py
 from __future__ import annotations
 import os
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Sequence
 
 import torch
 from datasets import load_dataset
@@ -13,19 +13,64 @@ from torch.utils.data import Subset
 from pathlib import Path
 from hashlib import sha1
 
+
+from utils.chunk_utils import (
+    build_chunked_corpus,
+    save_chunk_index,
+)
+
+###############################################################################
+# SBERT caching                                                               #
+###############################################################################
+def text_hash(text: str) -> str:
+    import hashlib
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
 def _compute_embeddings(
-    texts: List[str],
+    texts: Sequence[str],
     model: SentenceTransformer,
     batch_size: int = 64,
 ) -> torch.Tensor:
-    """Devuelve un tensor CPU float32 [N × D] con los CLS-embeddings."""
-    chunks: List[torch.Tensor] = []
+    """Return CLS embeddings as a `[N × D]` *float32* CPU tensor."""
+    acc: List[torch.Tensor] = []
     for i in tqdm(range(0, len(texts), batch_size), desc="Embedding"):
         batch = texts[i : i + batch_size]
         with torch.no_grad():
             emb = model.encode(batch, convert_to_numpy=True, show_progress_bar=False)
-            chunks.append(torch.from_numpy(emb))
-    return torch.cat(chunks, dim=0).float()
+            acc.append(torch.from_numpy(emb))
+    return torch.cat(acc).float()
+
+
+def _texts_fingerprint(texts: Sequence[str]) -> str:
+    h = sha1()
+    for t in texts:
+        h.update(t.encode("utf-8"))
+    return h.hexdigest()[:10]
+
+
+def ensure_sbert_cache(
+    texts: Sequence[str],
+    *,
+    model_name: str,
+    cache_dir: str = "./data/SBERT",
+    batch_size: int = 64,
+    force: bool = False,
+) -> torch.Tensor:
+    os.makedirs(cache_dir, exist_ok=True)
+    fp = _texts_fingerprint(texts)
+    tag = model_name.split("/")[-1]
+    path = os.path.join(cache_dir, f"sbert_{fp}_{tag}.pt")
+
+    if not force and os.path.exists(path):
+        return torch.load(path, map_location="cpu")
+
+    print(f"[INFO] SBERT cache miss → encoding {len(texts):,} texts …")
+    model = SentenceTransformer(model_name)
+    emb = _compute_embeddings(texts, model, batch_size=batch_size)
+    torch.save(emb, path)
+    print(f"[OK]  SBERT embeddings saved → {path}")
+    return emb
 
 def _jaccard_sim(a: str, b: str) -> float:
     a_set = set(a.lower().split())
@@ -180,45 +225,39 @@ def split_dataset(dataset: torch.utils.data.Dataset, val_split: float = 0.1, see
     train_idx = idx[n_val:]
     return Subset(dataset, train_idx), Subset(dataset, val_idx)
 
-
 def ensure_squad_data(
     *,
-    output_dir: str = "./data",
+    output_dir: str = "./data/SQUAD",
     max_samples: Optional[int] = None,
     base_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
     noise_std: float = 0.05,
     include_unanswerable: bool = False,
     force: bool = False,
+    chunk_max_tokens: int = 128,
+    chunk_stride: int = 64,
+    tokens_before: int = 32,
+    tokens_after: int = 32,
+    tokenizer_name: str | None = None,
+    visualize: bool = False  # New parameter to control visualization
 ) -> None:
-    """
-    Pre-procesa **SQuAD v1/v2** y genera los tensores de entrenamiento:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from collections import defaultdict
 
-        squad_vae_embeddings.pt
-        squad_dae_embeddings.pt
-        squad_contrastive_embeddings.pt
-
-    Ahorra tiempo reutilizando una única caché SBERT para queries y
-    contextos positivos; sólo los negativos se codifican aparte.
-    """
     os.makedirs(output_dir, exist_ok=True)
 
-    vae_path         = os.path.join(output_dir, "squad_vae_embeddings.pt")
-    dae_path         = os.path.join(output_dir, "squad_dae_embeddings.pt")
-    contrastive_path = os.path.join(output_dir, "squad_contrastive_embeddings.pt")
+    vae_path = Path(output_dir, "squad_vae_embeddings.pt")
+    dae_path = Path(output_dir, "squad_dae_embeddings.pt")
+    con_path = Path(output_dir, "squad_contrastive_embeddings.pt")
+    idx_path = Path(output_dir, "chunk_index.parquet")
 
-    # ------------------------------------------------------------------ #
-    #  0. Early-exit si todo existe                                       #
-    # ------------------------------------------------------------------ #
     if (
         not force
-        and all(os.path.exists(p) for p in (vae_path, dae_path, contrastive_path))
+        and all(p.exists() for p in (vae_path, dae_path, con_path, idx_path))
     ):
         print("[INFO] SQuAD embeddings already prepared — nothing to do.")
         return
 
-    # ------------------------------------------------------------------ #
-    #  1. Cargar SQuAD                                                   #
-    # ------------------------------------------------------------------ #
     ds_name = "squad_v2" if include_unanswerable else "squad"
     print(f"[INFO] Loading {ds_name} …")
     squad = load_dataset(ds_name, split="train")
@@ -226,88 +265,100 @@ def ensure_squad_data(
         squad = squad.select(range(min(max_samples, len(squad))))
     print(f"[INFO] SQuAD loaded with {len(squad):,} examples.")
 
-    # ------------------------------------------------------------------ #
-    #  2. Construir textos y tripletas                                   #
-    # ------------------------------------------------------------------ #
+    print("[INFO] Chunking contexts (answer‑aware) …")
+    chunks, chunk_index = build_chunked_corpus(
+        squad,
+        max_tokens=chunk_max_tokens,
+        stride=chunk_stride,
+        tokens_before=tokens_before,
+        tokens_after=tokens_after,
+        tokenizer_name=tokenizer_name or base_model_name,
+    )
+
+    save_chunk_index(idx_path, chunk_index)
+    print(f"[OK]  Chunk index saved → {idx_path}")
+
+    # Preindexar: {doc_id → [chunk_id con respuesta]}
+    doc_chunks: Dict[int, List[int]] = defaultdict(list)
+    for cid, row in chunk_index.iterrows():
+        if row["contains_answer"]:
+            doc_chunks[row["doc_id"]].append(cid)
+
     clean_texts: List[str] = []
-    contrastive_triples: List[Tuple[str, str, str]] = []
+    pos_chunks: List[str] = []
+    doc_ids_skipped: List[int] = []
 
-    for i, ex in enumerate(squad):
-        q   = ex["question"].strip()
-        ctx = ex["context"].strip()
-        if not q or not ctx:
-            continue
+    for doc_id, ex in enumerate(squad):
+        q = ex["question"].strip()
+        if doc_id in doc_chunks and doc_chunks[doc_id]:
+            cid = doc_chunks[doc_id][0]
+            pos_chunk = chunks[cid]
+            clean_texts.extend((q, pos_chunk))
+            pos_chunks.append(pos_chunk)
+        else:
+            doc_ids_skipped.append(doc_id)
 
-        # -------- obtener negativo poco parecido ----------------------- #
-        neg = None
-        for _ in range(10):
-            j = random.randint(0, len(squad) - 1)
-            if j == i:
-                continue
-            neg_ctx = squad[j]["context"].strip()
-            if neg_ctx and _jaccard_sim(q, neg_ctx) < 0.1:
-                neg = neg_ctx
-                break
-        if neg is None:
-            continue
+    if doc_ids_skipped and visualize:
+        print(f"[WARN] No chunk found with answer for {len(doc_ids_skipped)} documents.")
+        sns.set_theme()
+        plt.figure(figsize=(8, 4))
+        sns.histplot(doc_ids_skipped, bins=50, kde=False)
+        plt.title("Distribución de documentos sin chunk con respuesta")
+        plt.xlabel("doc_id")
+        plt.ylabel("Frecuencia")
+        plt.tight_layout()
+        plt.show()
 
-        clean_texts.extend((q, ctx))               # [q1, ctx1, q2, ctx2, ...]
-        contrastive_triples.append((q, ctx, neg))
+    neg_chunks: List[str] = []
+    rng = random.Random(42)
+    for doc_id, pos in enumerate(pos_chunks):
+        while True:
+            cand_id = rng.randrange(len(chunks))
+            if chunk_index.loc[cand_id, "doc_id"] != doc_id:
+                cand_chunk = chunks[cand_id]
+                if _jaccard_sim(pos, cand_chunk) < 0.1:
+                    neg_chunks.append(cand_chunk)
+                    break
 
-    print(f"[INFO] Contrastive triples generated: {len(contrastive_triples):,}")
-
-    # ------------------------------------------------------------------ #
-    #  3. Embeddings SBERT (una sola llamada)                            #
-    # ------------------------------------------------------------------ #
-    print("[INFO] Fetching / caching SBERT embeddings …")
-    cache_dir  = os.path.join(output_dir, "sbert_cache")
+    print("[INFO] Encoding SBERT embeddings …")
+    print(f"[INFO] Codificando queries + positivos: {len(clean_texts)//2} pares.")
+    cache_dir = Path(output_dir, "sbert_cache")
     target_emb = ensure_sbert_cache(
         clean_texts,
         model_name=base_model_name,
-        cache_dir=cache_dir,
+        cache_dir=str(cache_dir),
         batch_size=64,
-    )  # shape [2·N, D]
+    )
 
-    # desinterlevar: pares (q, ctx) -> índices pares / impares
-    q_emb_pos = target_emb[0::2]   # consultas
-    p_emb_pos = target_emb[1::2]   # contextos positivos
+    q_emb = target_emb[0::2]
+    p_emb = target_emb[1::2]
 
-    # ------------------------------------------------------------------ #
-    #  4. Guardar VAE / DAE                                              #
-    # ------------------------------------------------------------------ #
-    if force or not os.path.exists(vae_path):
+    print(f"[INFO] Codificando negativos: {len(neg_chunks)} chunks.")
+    n_emb = ensure_sbert_cache(
+        neg_chunks,
+        model_name=base_model_name,
+        cache_dir=str(cache_dir),
+        batch_size=64,
+    )
+
+    if force or not vae_path.exists():
         torch.save({"input": target_emb, "target": target_emb.clone()}, vae_path)
         print(f"[OK]  VAE embeddings   → {vae_path}")
 
-    if force or not os.path.exists(dae_path):
-        input_emb = target_emb + torch.randn_like(target_emb) * noise_std
-        torch.save({"input": input_emb, "target": target_emb}, dae_path)
+    if force or not dae_path.exists():
+        noisy = target_emb + torch.randn_like(target_emb) * noise_std
+        torch.save({"input": noisy, "target": target_emb}, dae_path)
         print(f"[OK]  DAE embeddings   → {dae_path}")
 
-    # ------------------------------------------------------------------ #
-    #  5. Guardar tripletas contrastivas                                 #
-    # ------------------------------------------------------------------ #
-    if force or not os.path.exists(contrastive_path):
-        print("[INFO] Encoding negatives and saving triplets …")
-        # solo los negativos requieren consulta a la caché (puede existir)
-        ns = [neg for _, _, neg in contrastive_triples]
-        n_emb = ensure_sbert_cache(ns, model_name=base_model_name, cache_dir=cache_dir)
+    if force or not con_path.exists():
+        torch.save({"query": q_emb, "positive": p_emb, "negative": n_emb}, con_path)
+        print(f"[OK]  Contrastive embeddings → {con_path}")
 
-        torch.save(
-            {
-                "query":     q_emb_pos,
-                "positive":  p_emb_pos,
-                "negative":  n_emb,
-            },
-            contrastive_path,
-        )
-        print(f"[OK]  Contrastive embeddings → {contrastive_path}")
-
-    print("[DONE] SQuAD preprocessing finished.")
+    print("[DONE] SQuAD preprocessing finished (chunk‑level).")
 
 
 
-def _prepare_uda(cfg: dict) -> Dict[str, str]:
+def _prepare_uda(cfg: dict) -> Dict[str, str]: # NOT IN USE
     common = dict(
         output_dir="./data/UDA",
         max_samples=cfg["data"].get("max_samples"),
