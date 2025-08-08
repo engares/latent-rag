@@ -9,7 +9,7 @@ Example
 
 python -m utils.visualization_exp \
   --sbert-cache data/SQUAD/sbert_cache/sbert_2254a38d6b_all-MiniLM-L6-v2.pt \
-  --checkpoint  models/checkpoints/contrastive_ae.pth \
+  --checkpoint  models/checkpoints/coe_text.pth \
   --projection  tsne \
   --components  2 \
   --sample-size 1200 \

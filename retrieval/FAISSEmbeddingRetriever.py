@@ -4,22 +4,29 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Sequence, Tuple, List, Optional, Dict, Any
 import json
+import time
 
 import numpy as np
 import faiss
 import torch
 
+from retrieval.common import (
+    as_float32_cpu_np,
+    normalize_l2_np_inplace,
+    StatsTracker,
+)
+
 
 class FAISSEmbeddingRetriever:
-    """
-    Indexador y recuperador FAISS para embeddings densos.
+    """FAISS-based dense retriever with unified metrics and L2 normalisation.
 
-    Características:
-      - Métrica INNER_PRODUCT (IP) con normalización L2: IP ≈ coseno.
-      - Persistencia opcional de índice + metadatos (textos, doc_ids y fingerprint).
-      - Reconstrucción automática si el índice en disco no es compatible
-        (dimensión, modelo de embedding, AE, chunking, etc.).
-      - Comprobación de sanidad tras indexar (self-search de un vector).
+    Features:
+        - INNER_PRODUCT (IP) metric + L2 normalisation ⇒ IP ≈ cosine.
+        - Index types: "flatip" (exact), "hnsw" (approx), "ivfpq" (quantised).
+        - Optional persistence: index + metadata (texts, doc_ids, fingerprint).
+        - Auto-rebuild if on-disk index is incompatible (dims/model/AE/chunking…).
+        - Minimal sanity check after building (self-search of the first vector).
+        - Unified performance metrics via StatsTracker.
     """
 
     # ------------------------------- Init ---------------------------------- #
@@ -43,27 +50,29 @@ class FAISSEmbeddingRetriever:
         self.ef_construction = int(ef_construction)
         self.ef_search = int(ef_search)
 
-        # Memoria de metadatos
+        # In-memory metadata
         self._texts: List[str] = []
         self._doc_ids: List[int] = []
         self.meta_fp: Dict[str, Any] = {}
 
-        # Índice (CPU por defecto)
+        # Index (CPU by default)
         self.index = self._build_index(self.d, self.index_type)
 
-        # Cargar índice si existe (lo validaremos en build())
+        # Unified metrics
+        self._stats = StatsTracker()
+
+        # Load index if present (compatibility checked in build())
         if self.path and self.path.exists():
             try:
                 cpu_index = faiss.read_index(str(self.path), faiss.IO_FLAG_MMAP)
-                # No cambiamos aún: la compatibilidad se decide en build()
                 self.index = cpu_index
                 self._load_metadata()
             except Exception:
-                # Archivo corrupto o incompatible → empezamos limpio
+                # Corrupted or incompatible file → start clean
                 self.index = self._build_index(self.d, self.index_type)
                 self._texts, self._doc_ids, self.meta_fp = [], [], {}
 
-        # Mover a GPU si procede
+        # Move to GPU if requested/available
         self.gpu_enabled = False
         if self.use_gpu and hasattr(faiss, "StandardGpuResources"):
             try:
@@ -72,32 +81,31 @@ class FAISSEmbeddingRetriever:
                     self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
                     self.gpu_enabled = True
                 else:
-                    print("[WARN] FAISS GPU no disponible. Uso CPU.")
+                    print("[WARN] FAISS GPU not available. Falling back to CPU.")
             except Exception:
-                print("[WARN] FAISS GPU no disponible. Uso CPU.")
+                print("[WARN] Failed to enable FAISS GPU. Falling back to CPU.")
 
-        # Ajuste de parámetros HNSW
+        # HNSW tweaks
         self._maybe_set_hnsw_params(self.index)
 
     # ------------------------------ Helpers -------------------------------- #
     def _build_index(self, d: int, kind: str) -> faiss.Index:
-        if kind == "flatip":                      # Exacto, IP
+        if kind == "flatip":                      # Exact, IP
             return faiss.IndexFlatIP(d)
-        if kind == "hnsw":                        # Aproximado, IP
+        if kind == "hnsw":                        # Approx, IP
             idx = faiss.IndexHNSWFlat(d, self.hnsw_M, faiss.METRIC_INNER_PRODUCT)
             idx.hnsw.efConstruction = self.ef_construction
             idx.hnsw.efSearch = self.ef_search
             return idx
-        if kind == "ivfpq":                       # Cuantización (no recomend. para N pequeño)
+        if kind == "ivfpq":                       # Quantised (not ideal for small N)
             quant = faiss.IndexFlatIP(d)
             return faiss.IndexIVFPQ(quant, d, 4096, 16, 8)
         raise ValueError(f"Index type not supported: {kind}")
 
     def _maybe_set_hnsw_params(self, index: faiss.Index) -> None:
-        # Ajusta efSearch si es HNSW
+        # Adjust efSearch for HNSW (CPU); GPU has its internal equivalents
         if isinstance(index, faiss.IndexHNSW):
             index.hnsw.efSearch = self.ef_search
-        # Si está en GPU y es HNSW, FAISS gestiona internamente los equivalentes.
 
     def _meta_path(self) -> Path:
         assert self.path is not None
@@ -127,11 +135,6 @@ class FAISSEmbeddingRetriever:
         self._texts = list(meta.get("texts", []))
         self._doc_ids = list(meta.get("doc_ids", []))
         self.meta_fp = dict(meta.get("fingerprint", {}))
-
-    @staticmethod
-    def _normalize_l2_inplace(x: np.ndarray) -> None:
-        # IP ≈ coseno si normalizamos L2
-        faiss.normalize_L2(x)
 
     @staticmethod
     def _fingerprint(
@@ -175,10 +178,18 @@ class FAISSEmbeddingRetriever:
                 return False
         return True
 
+    def _index_to_cpu(self) -> faiss.Index:
+        if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
+            try:
+                return faiss.index_gpu_to_cpu(self.index)
+            except Exception:
+                return self.index
+        return self.index
+
     # ------------------------------- Build --------------------------------- #
     def build(
         self,
-        embeddings: torch.Tensor,           # [N, D] (CPU/GPU), float32 preferido
+        embeddings: torch.Tensor,           # [N, D] (CPU/GPU), float32 preferred
         texts: Sequence[str],
         doc_ids: Sequence[int] | None = None,
         train: bool = True,
@@ -188,15 +199,16 @@ class FAISSEmbeddingRetriever:
         latent_dim: Optional[int] = None,
         chunking_cfg: Optional[Dict[str, Any]] = None,
     ) -> None:
+        """Build (or rebuild) the FAISS index and attach metadata."""
         assert len(embeddings) == len(texts), "len mismatch (embeddings vs texts)"
         if doc_ids is not None:
             assert len(texts) == len(doc_ids), "len mismatch (texts vs doc_ids)"
 
-        # 1) Preparar X (CPU, float32, C-contiguous) + normalización L2
-        x = embeddings.detach().cpu().numpy().astype("float32", copy=False)
-        self._normalize_l2_inplace(x)
+        # 1) Prepare X (CPU, float32, contiguous) + L2 normalisation
+        x = as_float32_cpu_np(embeddings)
+        normalize_l2_np_inplace(x)
 
-        # 2) Fingerprint actual
+        # 2) Current fingerprint
         cur_fp = self._fingerprint(
             d=int(x.shape[1]),
             embedding_model=embedding_model_name,
@@ -208,7 +220,7 @@ class FAISSEmbeddingRetriever:
             version=1,
         )
 
-        # 3) Validar índice en disco; si incompatible → reconstruir limpio
+        # 3) Validate on-disk index; if incompatible → rebuild
         rebuild = False
         if hasattr(self.index, "d") and int(getattr(self.index, "d")) != cur_fp["d"]:
             rebuild = True
@@ -216,17 +228,18 @@ class FAISSEmbeddingRetriever:
             rebuild = True
 
         if rebuild:
-            # Volver a CPU si estamos en GPU
+            # Back to CPU if currently on GPU
             if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
                 try:
                     self.index = faiss.index_gpu_to_cpu(self.index)
+                    self.gpu_enabled = False
                 except Exception:
                     pass
-            # Reconstruir
+            # Fresh index
             self.index = self._build_index(cur_fp["d"], self.index_type)
             self._texts, self._doc_ids, self.meta_fp = [], [], {}
             self._maybe_set_hnsw_params(self.index)
-            # Volver a GPU si aplica
+            # Back to GPU if needed
             if self.use_gpu and hasattr(faiss, "StandardGpuResources"):
                 try:
                     if faiss.get_num_gpus() > 0:
@@ -236,72 +249,88 @@ class FAISSEmbeddingRetriever:
                 except Exception:
                     self.gpu_enabled = False
 
-        # 4) Entrenar si aplica (IVF/IVFPQ) → con X normalizado
-        if train and hasattr(self.index, "train") and not self.index.is_trained:
+        # 4) Train (if applicable) and add vectors (measure build time)
+        t0 = time.perf_counter()
+        if hasattr(self.index, "train") and not self.index.is_trained:
             self.index.train(x)
-
-        # 5) Añadir vectores
         self.index.add(x)
+        self._stats.add_build_time(time.perf_counter() - t0)
 
-        # 6) Comprobación de sanidad mínima: self-search
+        # 5) Minimal sanity check: self-search for the first vector
         try:
             D_chk, I_chk = self.index.search(x[:1], 1)
             if I_chk.shape[0] == 0 or I_chk[0, 0] != 0:
                 print("[ERROR] FAISS sanity check failed; rebuilding index")
-                # Reconstruir y re-add
+                # Rebuild and re-add (count time again)
                 if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
                     try:
                         self.index = faiss.index_gpu_to_cpu(self.index)
+                        self.gpu_enabled = False
                     except Exception:
                         pass
                 self.index = self._build_index(cur_fp["d"], self.index_type)
                 self._maybe_set_hnsw_params(self.index)
-                if train and hasattr(self.index, "train") and not self.index.is_trained:
+                t0 = time.perf_counter()
+                if hasattr(self.index, "train") and not self.index.is_trained:
                     self.index.train(x)
                 self.index.add(x)
+                self._stats.add_build_time(time.perf_counter() - t0)
         except Exception:
-            # Si algo falla en el sanity, reconstruimos igualmente
+            # If sanity check fails, force rebuild
+            if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
+                try:
+                    self.index = faiss.index_gpu_to_cpu(self.index)
+                    self.gpu_enabled = False
+                except Exception:
+                    pass
             self.index = self._build_index(cur_fp["d"], self.index_type)
             self._maybe_set_hnsw_params(self.index)
-            if train and hasattr(self.index, "train") and not self.index.is_trained:
+            t0 = time.perf_counter()
+            if hasattr(self.index, "train") and not self.index.is_trained:
                 self.index.train(x)
             self.index.add(x)
+            self._stats.add_build_time(time.perf_counter() - t0)
 
-        # 7) Metadatos en memoria
+        # 6) In-memory metadata
         self._texts.extend(list(texts))
         self._doc_ids.extend(list(doc_ids) if doc_ids is not None else [-1] * len(texts))
         self.meta_fp = cur_fp
 
-        # 8) Persistencia (si se configuró path). Siempre escribir en CPU.
+        # 7) Persist to disk (CPU copy)
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            cpu_index = self.index
-            if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
-                try:
-                    cpu_index = faiss.index_gpu_to_cpu(self.index)
-                except Exception:
-                    cpu_index = self.index  # fallback
+            cpu_index = self._index_to_cpu()
             faiss.write_index(cpu_index, str(self.path))
             self._save_metadata()
 
-        # 9) Log breve (útil para auditoría)
+        # 8) Brief log
         try:
             ntotal = getattr(self.index, "ntotal", -1)
             print(f"[FAISS] type={type(self.index).__name__} d={cur_fp['d']} ntotal={ntotal} metric=IP normL2=True")
         except Exception:
             pass
 
-    # ------------------------------ Retrieve ------------------------------- #
-    def retrieve(self, query_emb: torch.Tensor, top_k: int = 10) -> Tuple[List[str], List[float], List[int]]:
-        if query_emb.dim() == 1:
-            query_emb = query_emb.unsqueeze(0)
-        q = query_emb.detach().cpu().numpy().astype("float32", copy=False)
-        self._normalize_l2_inplace(q)
+    # ------------------------------ Search API ----------------------------- #
+    def search(self, queries: torch.Tensor, k: int) -> Tuple[np.ndarray, np.ndarray]:
+        """Batch search. Returns (D, I) with similarities and indices."""
+        if queries.dim() == 1:
+            queries = queries.unsqueeze(0)
+        q = as_float32_cpu_np(queries)
+        normalize_l2_np_inplace(q)
 
-        D, I = self.index.search(q, top_k)  # IP → D = similitudes (mayor=mejor)
+        t0 = time.perf_counter()
+        D, I = self.index.search(q, k)  # IP → higher is better
+        dt = time.perf_counter() - t0
+
+        self._stats.add_search_batch(batch_size=len(q), seconds=dt)
+        return D, I
+
+    def retrieve(self, query_emb: torch.Tensor, top_k: int = 10) -> Tuple[List[str], List[float], List[int]]:
+        """Convenience single-query API returning texts, scores and doc_ids."""
+        D, I = self.search(query_emb, top_k)
         idxs = I[0].tolist()
 
-        # Protección si faltan metadatos (compatibilidad)
+        # Lazy-load metadata if missing (compatibility)
         if not self._texts or not self._doc_ids:
             self._load_metadata()
 
@@ -309,3 +338,8 @@ class FAISSEmbeddingRetriever:
         scores = D[0].tolist()
         docids = [self._doc_ids[i] for i in idxs]
         return texts, scores, docids
+
+    # ----------------------------- Stats API -------------------------------- #
+    def get_stats(self, reset: bool = False) -> Dict[str, Any]:
+        """Return and optionally reset internal performance metrics."""
+        return self._stats.get_stats(reset=reset)

@@ -28,14 +28,11 @@ def vae_loss(
         mse_reduction:   "mean" (recommended) or "sum"
         beta:            weight of the KL term (β-VAE)
     """
-    # ── 1. reconstruction error ─────────────────────────────────────────
-    recon = F.mse_loss(x_reconstructed, x_target, reduction=mse_reduction)
-
-    # ── 2. KL (normalized) ───────────────────────────────────────────────
-    #   KL(q(z|x) || N(0,1))  =  -½ Σ_i (1 + logσ²_i − μ²_i − σ²_i)
-    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean()  # ← .mean() ≈ /B/Z
-
+    cos = F.cosine_similarity(x_reconstructed, x_target, dim=-1)
+    recon = (1.0 - cos).mean()
+    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean()
     return recon + beta * kl
+
 
 ###############################################################################
 #  DAE                                                                        #

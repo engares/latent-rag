@@ -932,3 +932,47 @@ Training VAE | device=cuda | deterministic=False
 2025-08-08 19:27:45,949 [INFO] RAGGenerator: OpenAI API key loaded successfully.
 2025-08-08 19:27:45,949 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
 2025-08-08 19:27:46,466 [INFO] main: Retriever backend 'faiss' initialised in 0.00 s
+2025-08-08 19:49:23,228 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 19:49:27,410 [INFO] main: Device resolved → cuda
+2025-08-08 19:49:27,685 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-08 19:49:29,668 [INFO] main: Compressor ready (AE = contrastive)
+2025-08-08 19:49:29,693 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-08 19:49:29,693 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-08 19:49:30,300 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s
+2025-08-08 21:12:24,117 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 21:12:28,336 [INFO] main: Device resolved → cuda
+2025-08-08 21:12:28,600 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-08 21:12:30,630 [INFO] main: Compressor ready (AE = contrastive)
+2025-08-08 21:12:30,651 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-08 21:12:30,651 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-08 21:12:31,289 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s
+2025-08-08 21:16:01,502 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 21:16:37,190 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 21:16:41,339 [INFO] main: Device resolved → cuda
+2025-08-08 21:16:41,564 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-08 21:16:43,717 [INFO] main: Compressor ready (AE = vae)
+2025-08-08 21:16:43,740 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-08 21:16:43,741 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-08 21:16:44,319 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s
+2025-08-08 21:30:35,749 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 21:48:54,907 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 21:48:58,939 [INFO] main: Device resolved → cuda
+2025-08-08 21:48:59,204 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-08 21:49:01,231 [INFO] main: Compressor ready (AE = vae)
+2025-08-08 21:49:01,254 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-08 21:49:01,254 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-08 21:49:01,865 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s
+2025-08-08 23:35:33,025 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 23:35:37,604 [INFO] main: Device resolved → cuda
+2025-08-08 23:35:37,886 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-08 23:35:39,910 [INFO] main: Compressor ready (AE = vae)
+2025-08-08 23:35:39,934 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-08 23:35:39,934 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-08 23:35:40,594 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-08 23:35:58,053 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-08 23:36:02,087 [INFO] main: Device resolved → cuda
+2025-08-08 23:36:02,330 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-08 23:36:04,201 [INFO] main: Compressor ready (AE = vae)
+2025-08-08 23:36:04,213 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-08 23:36:04,213 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-08 23:36:04,770 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s

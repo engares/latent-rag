@@ -37,8 +37,8 @@ class VariationalAutoencoder(BaseAutoencoder):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         return self.decoder(z)
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x):
         mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
+        z = mu if not self.training else self.reparameterize(mu, logvar)
         x_reconstructed = self.decode(z)
         return x_reconstructed, mu, logvar

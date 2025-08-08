@@ -9,9 +9,11 @@
 │       └── system_prompt.txt
 ├── data/
 │   ├── SQUAD/
+│   │   ├── chunk_index.parquet
+│   │   ├── chunk_index_infer.parquet
 │   │   ├── sbert_cache/
-│   │   │   ├── sbert_2254a38d6b_all-MiniLM-L6-v2.pt
-│   │   │   └── sbert_7eb48b423e_all-MiniLM-L6-v2.pt
+│   │   │   ├── sbert_8b49db0d09_all-MiniLM-L6-v2.pt
+│   │   │   └── sbert_8ebee4d368_all-MiniLM-L6-v2.pt
 │   │   ├── squad_contrastive_embeddings.pt
 │   │   ├── squad_dae_embeddings.pt
 │   │   └── squad_vae_embeddings.pt
@@ -19,11 +21,10 @@
 │   │   ├── squad_contrastive_embeddings.pt
 │   │   ├── squad_dae_embeddings.pt
 │   │   └── squad_vae_embeddings.pt
-│   ├── UDA/
-│   │   ├── uda_contrastive_embeddings.pt
-│   │   ├── uda_dae_embeddings.pt
-│   │   └── uda_vae_embeddings.pt
 │   ├── data_processing.py
+│   ├── index/
+│   │   ├── faiss_chunks.faiss
+│   │   └── faiss_chunks.faiss.meta.json
 │   └── torch_datasets.py
 ├── evaluation/
 │   ├── autoencoder_metrics.py
@@ -33,6 +34,7 @@
 │   └── retrieval_metrics.py
 ├── fig/
 │   ├── cae_tsne_2d_1200s_10k_perp30.png
+│   ├── cae_tsne_2d_1200s_10k_perp30_negatives_distribution.png
 │   ├── dae_tsne_2d_1200s_10k_perp30.png
 │   ├── dae_tsne_2d_1200s_10k_perp30_negatives_distribution.png
 │   └── old/
@@ -53,14 +55,17 @@
 │   ├── checkpoints/
 │   │   ├── contrastive_ae.pth
 │   │   ├── dae_text.pth
-│   │   └── vae_text.pth
+│   │   ├── vae_text.pth
+│   │   └── vae_text.pth:Zone.Identifier
 │   ├── contrastive_autoencoder.py
 │   ├── denoising_autoencoder.py
 │   └── variational_autoencoder.py
 ├── requeriments.txt
 ├── retrieval/
+│   ├── FAISSEmbeddingRetriever.py
 │   ├── base.py
 │   ├── bm25.py
+│   ├── bruteforce.py
 │   ├── dpr.py
 │   ├── embedder.py
 │   └── retriever.py
@@ -68,6 +73,8 @@
 ├── snapshot.txt
 ├── style_guide.md
 ├── test/
+│   ├── test_alignment_squad_embeddings.py
+│   ├── test_chunk_utils.py
 │   ├── test_data_processing.py
 │   ├── test_evaluation.py
 │   ├── test_loss_functions.py
@@ -82,12 +89,13 @@
 │   ├── train_dae.py
 │   └── train_vae.py
 └── utils/
+    ├── chunk_utils.py
     ├── data_utils.py
     ├── load_config.py
     ├── training_utils.py
     └── visualization_exp.py
 
-18 directories, 67 files
+18 directories, 75 files
 
 
 ### File contents
@@ -375,12 +383,12 @@ models:
     latent_dim: 64
     hidden_dim: 512
     dataset_file: "squad_cae_embeddings.pt"
-    checkpoint: "contrastive_ae.pth"
+    checkpoint: "coe_text.pth"
 
 data:
   dataset: "squad"            #  "uda"  |  "squad"
   version: "v1"          #  v1, v2  ONly for squad
-  max_samples:         #  optional, blankk to use all samples
+  max_samples: 2000        #  optional, blankk to use all samples
   include_unanswerable: false   #  Only Squad v2 has this option
 
 training:
@@ -392,9 +400,12 @@ training:
   deterministic: false      # (true = modo debug)
 
 retrieval:
-  similarity_metric: "cosine"   # cosine, mahalanobis
-  top_k: 20
-  compress_embeddings: true 
+  backend: faiss          # 'faiss' | 'bruteforce'
+  index_type: flatip        # flatip | hnsw | ivfpq
+  index_path: ./data/index/faiss_chunks.faiss
+  use_gpu: true
+  top_k: 10
+  max_chunks_per_doc: 3   # (como se definió en el roadmap de chunking)
 
 generation:
   provider: "openai"       # Just OpenAI by now
@@ -403,9 +414,18 @@ generation:
   max_tokens: 256
   system_prompt_path: "./config/prompts/system_prompt.txt"
 
+chunking:
+  enabled: false
+  mode: semantic        # "sliding" | "semantic"
+  max_tokens: 128
+  stride: 64
+  min_tokens: 48        # solo para 'semantic'
+  tokenizer_name: sentence-transformers/all-MiniLM-L6-v2
+  index_out: "./data/SQUAD/chunk_index_infer.parquet"
+  store_chunk_text: true
 
 evaluation:
-  retrieval_metrics: ["Recall@5", "MRR@10", "nDCG@10"] # You can change the k top  simply by changing the @k e.j Recall@10, "MRR@20"
+  retrieval_metrics: ["Recall@10", "MRR@10", "nDCG@10"] # You can change the k top  simply by changing the @k e.j Recall@10, "MRR@20"
   generation_metrics: ["ROUGE-L", "BLEU"]
 
 logging:
@@ -1185,24 +1205,40 @@ def evaluate_retrieval(retrieved_batch: List[Sequence[ID]] | Sequence[ID],
 
 generation/generator.py
 """
-# generation/generator.py  – RAG (Refactor estilo train_vae)
+"""RAG Generator Module.
 
+Implements a retrieval-augmented generation (RAG) pipeline using LLMs and retrieved documents.
+"""
 from __future__ import annotations
-import os, textwrap, logging
+import os
+import textwrap
+import logging
 from typing import List, Dict, Any
 from dataclasses import dataclass, field
 from openai import OpenAI, AsyncOpenAI
 
 def _load_prompt(path: str) -> str:
+    """Load a text prompt from a file.
+
+    Args:
+        path: Path to the prompt file.
+
+    Returns:
+        The content of the file as a string.
+
+    Raises:
+        FileNotFoundError: If the file does not exist.
+    """
     try:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
     except FileNotFoundError:
-        logging.getLogger(__name__).warning("Prompt no encontrado: %s", path)
+        logging.getLogger(__name__).warning("Prompt not found: %s", path)
         return ""
 
 @dataclass
 class LLMSettings:
+    """Configuration for the language model."""
     model: str = "gpt-4o-mini"
     temperature: float = 0.3
     top_p: float = 1.0
@@ -1215,100 +1251,138 @@ class LLMSettings:
 
 @dataclass
 class GeneratorConfig:
+    """Configuration for the RAG generator."""
     llm: LLMSettings = field(default_factory=LLMSettings)
     max_context_tokens: int = 4096
-    provider: str = "openai"          
+    provider: str = "openai"
     extras: Dict[str, Any] = field(default_factory=dict)
 
-
-###############################################################################
-#  RAG GENERATOR                                                               #
-###############################################################################
-
 class RAGGenerator:
-    """Generador basado en LLM + documentos recuperados."""
+    """Generator based on LLMs and retrieved documents."""
 
-    def __init__(self, cfg: Dict[str, Any], **overrides):
-        # fusinon YAML + overrides CLI
-        gen_cfg_dict = {**cfg.get("generation", {}), **overrides}
+    def __init__(self, config: Dict[str, Any], **overrides):
+        """Initialize the RAG generator.
 
-        llm_cfg_dict = gen_cfg_dict.pop("llm", {})
-        self.cfg = GeneratorConfig(
-            llm=LLMSettings(**llm_cfg_dict),
-            **{k: v for k, v in gen_cfg_dict.items() if k in {"max_context_tokens", "provider"}},
-            extras={k: v for k, v in gen_cfg_dict.items() if k not in {"max_context_tokens", "provider"}}
+        Args:
+            config: Configuration dictionary loaded from YAML or other sources.
+            overrides: Additional configuration overrides.
+        """
+        generator_config = {**config.get("generation", {}), **overrides}
+
+        llm_config = generator_config.pop("llm", {})
+        self.config = GeneratorConfig(
+            llm=LLMSettings(**llm_config),
+            **{k: v for k, v in generator_config.items() if k in {"max_context_tokens", "provider"}},
+            extras={k: v for k, v in generator_config.items() if k not in {"max_context_tokens", "provider"}}
         )
 
         self.logger = logging.getLogger(self.__class__.__name__)
-        self._init_openai()
+        self._initialize_openai()
 
-    # ---------------- PUBLIC API -------------------------------------------
     def generate(self, query: str, retrieved_docs: List[str]) -> str:
+        """Generate a response using the LLM.
+
+        Args:
+            query: User query string.
+            retrieved_docs: List of retrieved documents to use as context.
+
+        Returns:
+            Generated response string.
+        """
         prompt = self._build_prompt(query, retrieved_docs)
-        self.logger.debug("Prompt (%d chars) construido.", len(prompt))
+        self.logger.debug("Prompt (%d chars) constructed.", len(prompt))
 
         response = self.client.chat.completions.create(
-            model=self.cfg.llm.model,
-            temperature=self.cfg.llm.temperature,
-            top_p=self.cfg.llm.top_p,
-            max_tokens=self.cfg.llm.max_tokens,
+            model=self.config.llm.model,
+            temperature=self.config.llm.temperature,
+            top_p=self.config.llm.top_p,
+            max_tokens=self.config.llm.max_tokens,
             messages=[
-                {"role": "system", "content": self.cfg.llm.system_prompt},
+                {"role": "system", "content": self.config.llm.system_prompt},
                 {"role": "user", "content": prompt},
             ],
         )
         return response.choices[0].message.content.strip()
 
-
     async def generate_async(self, query: str, retrieved_docs: List[str]) -> str:
+        """Asynchronously generate a response using the LLM.
+
+        Args:
+            query: User query string.
+            retrieved_docs: List of retrieved documents to use as context.
+
+        Returns:
+            Generated response string.
+        """
         prompt = self._build_prompt(query, retrieved_docs)
         self.logger.debug("Prompt async (%d chars).", len(prompt))
 
         client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         response = await client.chat.completions.create(
-            model=self.cfg.llm.model,
-            temperature=self.cfg.llm.temperature,
-            top_p=self.cfg.llm.top_p,
-            max_tokens=self.cfg.llm.max_tokens,
+            model=self.config.llm.model,
+            temperature=self.config.llm.temperature,
+            top_p=self.config.llm.top_p,
+            max_tokens=self.config.llm.max_tokens,
             messages=[
-                {"role": "system", "content": self.cfg.llm.system_prompt},
+                {"role": "system", "content": self.config.llm.system_prompt},
                 {"role": "user", "content": prompt},
             ],
         )
         return response.choices[0].message.content.strip()
 
-    # ---------------- INTERNALS -------------------------------------------
-    def _init_openai(self) -> None:
+    def _initialize_openai(self) -> None:
+        """Initialize the OpenAI client."""
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise EnvironmentError(
-                "Variable OPENAI_API_KEY no definida. Añádela a tu .env o al entorno."
+                "Environment variable OPENAI_API_KEY is not defined. Add it to your .env or environment."
             )
         self.client = OpenAI(api_key=api_key)
-        self.logger.info("API Key OpenAI cargada correctamente.")
+        self.logger.info("OpenAI API key loaded successfully.")
 
     def _build_prompt(self, query: str, docs: List[str]) -> str:
+        """Construct the prompt for the LLM.
+
+        Args:
+            query: User query string.
+            docs: List of retrieved documents to use as context.
+
+        Returns:
+            Constructed prompt string.
+        """
         context = self._truncate_docs(docs)
         joined = "\n\n".join(f"Doc {i+1}: {d}" for i, d in enumerate(context))
         return textwrap.dedent(
             f"""\
-            Utiliza exclusivamente la siguiente información para responder.\n\n{joined}\n\n
-            Pregunta: {query}\n\nRespuesta:"""
+            Use only the following information to respond.\n\n{joined}\n\n
+            Question: {query}\n\nAnswer:"""
         )
 
     def _truncate_docs(self, docs: List[str]) -> List[str]:
-        max_chars = self.cfg.max_context_tokens * 4   # heuristic ≈ tokens*4
-        out, acc = [], 0
-        for d in docs:
-            if acc + len(d) > max_chars:
+        """Truncate documents to fit within the token limit.
+
+        Args:
+            docs: List of documents to truncate.
+
+        Returns:
+            List of truncated documents.
+        """
+        max_chars = self.config.max_context_tokens * 4  # heuristic ≈ tokens * 4
+        output, accumulated = [], 0
+        for doc in docs:
+            if accumulated + len(doc) > max_chars:
                 break
-            out.append(d)
-            acc += len(d)
-        return out
+            output.append(doc)
+            accumulated += len(doc)
+        return output
 
 """
 
 main.py
+"""
+"""Main pipeline for RAG-AE experiments.
+
+This script orchestrates the retrieval-augmented generation (RAG) pipeline, including encoding, retrieval, optional generation, and evaluation.
 """
 from __future__ import annotations
 
@@ -1330,7 +1404,6 @@ from sentence_transformers import SentenceTransformer  # lazy‑loaded by embedd
 from utils.load_config import init_logger, load_config
 from utils.training_utils import resolve_device, set_seed
 from retrieval.embedder import EmbeddingCompressor
-from retrieval.retriever import retrieve_top_k
 from evaluation.retrieval_metrics import evaluate_retrieval
 from evaluation.generation_metrics import (
     evaluate_generation_bootstrap as eval_generation,
@@ -1340,57 +1413,118 @@ from models.variational_autoencoder import VariationalAutoencoder
 from models.denoising_autoencoder import DenoisingAutoencoder
 from models.contrastive_autoencoder import ContrastiveAutoencoder
 
+from retrieval.retriever import build_retriever          
+from retrieval.FAISSEmbeddingRetriever import FAISSEmbeddingRetriever
+import time
+from typing import Any
+
+def _bool(x: Any) -> bool:
+    """Convert a value to boolean, treating None as False.
+
+    Args:
+        x: Input value.
+
+    Returns:
+        Boolean representation of the input.
+    """
+    return bool(x) if x is not None else False
+
+def _print_run_card(cfg: Dict[str, Any], ae_type: str, *, generate: bool) -> None:
+    """Print a summary of the experiment configuration.
+
+    Args:
+        cfg: Configuration dictionary.
+        ae_type: Type of autoencoder used.
+        generate: Whether the generation step is enabled.
+    """
+    retr = cfg.get("retrieval", {})
+    ch = cfg.get("chunking", {})
+    data = cfg.get("data", {})
+    embm = cfg.get("embedding_model", {})
+    gen = cfg.get("generation", {})
+
+    use_chunking = _bool(ch.get("enabled"))
+    top_k = int(retr.get("top_k", 10))
+    cand_k = int(retr.get("candidate_k", top_k * 3 if use_chunking else top_k))
+
+    lines = [
+        "Experiment Configuration",
+        f"  Dataset: {data.get('dataset', '?')} / split=validation / max_samples={data.get('max_samples')}",
+        f"  Embedding: {embm.get('name', '?')} (max_length={embm.get('max_length', '?')})",
+        f"  Autoencoder: {ae_type}",
+        f"  Retrieval: backend={retr.get('backend', 'faiss')} index_type={retr.get('index_type', 'hnsw')} "
+        f"use_gpu={_bool(retr.get('use_gpu'))} top_k={top_k} candidate_k={cand_k} max_chunks_per_doc={retr.get('max_chunks_per_doc', 2)}",
+        (
+            f"  Chunking: enabled={use_chunking} mode={ch.get('mode', 'sliding')} "
+            f"max_tokens={ch.get('max_tokens', 128)} stride={ch.get('stride', 64)} "
+            + (f"min_tokens={ch.get('min_tokens', 48)} " if ch.get('mode', 'sliding') != 'sliding' else "")
+            + f"tokenizer={ch.get('tokenizer_name', embm.get('name', '?'))}"
+        ) if use_chunking else "  Chunking: disabled",
+        f"  Evaluation: {', '.join(cfg.get('evaluation', {}).get('retrieval_metrics', ['Recall@10', 'MRR@10', 'nDCG@10']))}",
+        (
+            f"  Generation: provider={gen.get('provider')} model={gen.get('model')} "
+            f"temperature={gen.get('temperature', 0.3)} max_tokens={gen.get('max_tokens', 256)}"
+        ) if generate else "  Generation: disabled",
+    ]
+    from rich import print as rprint
+    rprint("\n" + "\n".join(lines) + "\n")
+
 # ---------------------------------------------------------------------------
 # Helper factories
 # ---------------------------------------------------------------------------
+
+def _resolve_ckpt_path(checkpoint: str | None, cfg_paths: Dict[str, Any]) -> Path:
+    """Returns the absolute path of the checkpoint.
+    If relative, it is concatenated with paths.checkpoints_dir.
+    """
+    if not checkpoint:
+        return Path()  # invalid
+    p = Path(checkpoint)
+    if p.is_absolute():
+        return p
+    base = Path(cfg_paths.get("checkpoints_dir", "./models/checkpoints"))
+    return (base / p).resolve()
 
 def _load_autoencoder(
     cfg_models: Dict[str, Dict[str, Any]],
     ae_type: str,
     device: str,
+    cfg_paths: Dict[str, Any] | None = None,
 ) -> Optional[torch.nn.Module]:
-    """Instantiate and load the requested auto‑encoder.
-
-    Args:
-        cfg_models: Dict extracted from YAML under `models`.
-        ae_type:    "vae", "dae", "contrastive" or "none".
-        device:     "cpu" | "cuda".
-
-    Returns:
-        A `torch.nn.Module` in eval mode, or *None* if `ae_type == "none"`.
-    """
-
+    """Instantiate and load the requested autoencoder."""
     if ae_type == "none":
         return None
 
     if ae_type not in cfg_models:
-        raise ValueError(
-            f"[CONFIG] Auto‑encoder '{ae_type}' not found under 'models' in config."
-        )
+        raise ValueError(f"[CONFIG] Auto‑encoder '{ae_type}' not found in 'models'.")
 
     mcfg = cfg_models[ae_type]
-    input_dim = mcfg.get("input_dim", 384)
+    input_dim  = mcfg.get("input_dim", 384)
     latent_dim = mcfg.get("latent_dim", 64)
     hidden_dim = mcfg.get("hidden_dim", 512)
-    checkpoint = mcfg.get("checkpoint")
 
+    # --- Factory by ae_type (without requiring 'class' in YAML)
     if ae_type == "vae":
-        model: torch.nn.Module = VariationalAutoencoder(  # type: ignore[assignment]
-            input_dim, latent_dim, hidden_dim
-        )
+        model: torch.nn.Module = VariationalAutoencoder(input_dim, latent_dim, hidden_dim)
     elif ae_type == "dae":
         model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim)
     elif ae_type == "contrastive":
         model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim)
     else:
-        raise RuntimeError("Unreachable branch – ae_type already validated.")
+        raise RuntimeError("Unrecognized AE type.")
 
-    if checkpoint and Path(checkpoint).exists():
-        model.load_state_dict(torch.load(checkpoint, map_location=device))
+    # --- Resolve checkpoint relative to paths.checkpoints_dir if needed
+    ckpt = _resolve_ckpt_path(mcfg.get("checkpoint"), cfg_paths or {})
+    if ckpt and ckpt.exists():
+        model.load_state_dict(torch.load(str(ckpt), map_location=device))
     else:
-        raise FileNotFoundError(f"Checkpoint for '{ae_type}' not found: {checkpoint}")
+        raise FileNotFoundError(
+            f"Checkpoint for '{ae_type}' not found: {ckpt} "
+            f"(check 'paths.checkpoints_dir' and 'models.{ae_type}.checkpoint')"
+        )
 
     return model.to(device).eval()
+
 
 
 # ---------------------------------------------------------------------------
@@ -1407,21 +1541,6 @@ def _encode_corpus(
     return compressor.encode_text(list(texts), compress=compress)
 
 
-def _retrieve_documents(
-    query_emb: torch.Tensor,
-    doc_emb: torch.Tensor,
-    corpus: Sequence[str],
-    retr_cfg: Dict[str, Any],
-) -> Tuple[List[str], List[float]]:
-    """Retrieve top‑k docs and similarity scores for a *single* query."""
-
-    top_k = retr_cfg.get("top_k", 10)
-    metric = retr_cfg.get("similarity_metric", "cosine")
-    results = retrieve_top_k(query_emb, doc_emb, list(corpus), k=top_k, metric=metric)
-    docs, scores = zip(*results)
-    return list(docs), list(scores)
-
-
 def _evaluate_retrieval(
     retrieved: Sequence[Sequence[str]],
     relevant: Sequence[Sequence[str]] | Sequence[str],
@@ -1436,76 +1555,193 @@ def _evaluate_retrieval(
 # Core runner
 # ---------------------------------------------------------------------------
 
-class PipelineRunner:  # noqa: D101 – simple orchestrator
+# --------------------------------------------------------------------------- #
+#  PIPELINE RUNNER                                                            #
+# --------------------------------------------------------------------------- #
+class PipelineRunner:
+    """Orchestrates the RAG pipeline: encode → retrieve → (optional) generate → evaluate."""
+
     def __init__(self, cfg: Dict[str, Any], ae_type: str, logger):
+        """Initialize the pipeline runner.
+
+        Args:
+            cfg: Configuration dictionary.
+            ae_type: Type of autoencoder used.
+            logger: Logger instance.
+        """
         self.cfg = cfg
         self.ae_type = ae_type
         self.logger = logger
 
-        device = resolve_device(cfg.get("training", {}).get("device"))
-        self.device = device
-        self.logger.main.info("Device resolved → %s", device)
+        self.device = resolve_device(cfg.get("training", {}).get("device"))
+        self.logger.main.info("Device resolved → %s", self.device)
 
-        # Auto‑encoder & compressor ------------------------------------------------
-        ae_model = _load_autoencoder(cfg["models"], ae_type, device)
+        # Compressor (SBERT ± AE)
+        ae_model = _load_autoencoder(cfg["models"], ae_type, self.device, cfg.get("paths", {}))
         self.compressor = EmbeddingCompressor(
             base_model_name=cfg["embedding_model"]["name"],
             autoencoder=ae_model,
-            device=device,
+            device=self.device,
         )
         self.logger.main.info("Compressor ready (AE = %s)", ae_type)
 
-        # Retriever ---------------------------------------------------------------
+        # Retrieval configuration
         self.retr_cfg = cfg.get("retrieval", {})
+        self.retriever = None  # Set in _build_retriever
 
-        # Generator ---------------------------------------------------------------
+        # Generator
         self.generator = RAGGenerator(cfg)
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
+    def _build_retriever(
+        self,
+        doc_embeddings: torch.Tensor,
+        corpus: Sequence[str],
+        doc_ids: Sequence[int],
+    ):
+        """Initialise retrieval backend (FAISS / BruteForce)."""
+        t0 = time.perf_counter()
+        self.retriever = build_retriever(
+            embeddings=doc_embeddings,
+            texts=corpus,
+            doc_ids=doc_ids,
+            cfg=self.retr_cfg,
+        )
+        self.logger.main.info(
+            "Retriever backend '%s' initialised in %.2f s",
+            self.retr_cfg.get("backend", "faiss"),
+            time.perf_counter() - t0,
+        )
+
+    # ------------------------------------------------------------------ #
     def process(
         self,
         queries: Sequence[str],
         corpus: Sequence[str],
-        relevant_docs: Optional[Sequence[str]] = None,
+        relevant_docs: Optional[Sequence[Sequence[str]]] = None,
         generate: bool = False,
     ) -> None:
-        """Run encode → retrieve → generate → evaluate for *all* queries."""
+        """Run the pipeline: encode → retrieve → (optional) generate → evaluate.
 
-        self.logger.main.info("Running pipeline: |queries|=%d |docs|=%d", len(queries), len(corpus))
+        Args:
+            queries: List of query strings.
+            corpus: List of document strings.
+            relevant_docs: Ground-truth relevant documents for evaluation.
+            generate: Whether to run the generation step.
+        """
+        self.logger.main.info(
+            "Running pipeline: |queries|=%d |corpus|=%d", len(queries), len(corpus)
+        )
+
+        # Immutable copy for doc-level evaluation
+        orig_docs = list(corpus)
+        context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
+
+        # Optional chunking for inference
+        ch_cfg = self.cfg.get("chunking", {})
+        use_chunking = bool(ch_cfg.get("enabled", False))
+        if use_chunking:
+            from utils.data_utils import prepare_inference_chunks
+            chunks, chunk_index = prepare_inference_chunks(
+                orig_docs,
+                mode=ch_cfg.get("mode", "sliding"),
+                max_tokens=ch_cfg.get("max_tokens", 128),
+                stride=ch_cfg.get("stride", 64),
+                min_tokens=ch_cfg.get("min_tokens", 48),
+                tokenizer_name=ch_cfg.get("tokenizer_name", self.cfg["embedding_model"]["name"]),
+                index_out=ch_cfg.get("index_out"),
+                store_chunk_text=ch_cfg.get("store_chunk_text", True),
+            )
+            corpus = chunks
+            corpus_doc_ids: List[int] = chunk_index["doc_id"].astype(int).tolist()  # chunk → doc
+            self.logger.main.info("Chunking enabled: |docs|=%d → |chunks|=%d", len(orig_docs), len(corpus))
+            self.logger.main.debug("Chunking configuration: %s", ch_cfg)
+        else:
+            corpus_doc_ids = list(range(len(corpus)))
+
+        # Encode corpus once
         doc_embeddings = _encode_corpus(self.compressor, corpus, compress=True)
+
+        # Build or load retrieval index
+        self._build_retriever(doc_embeddings, corpus, corpus_doc_ids)
+
+        # Encode queries
         query_embeddings = _encode_corpus(self.compressor, queries, compress=True)
 
-        all_retrieved: List[Sequence[str]] = []
+        # Retrieve with doc-level MaxSim aggregation
+        top_k = int(self.retr_cfg.get("top_k", 10))
+        cand_k = int(self.retr_cfg.get("candidate_k", top_k * 3 if use_chunking else top_k))
+
+        all_retrieved_docids: List[List[int]] = []
         answers: List[str] = []
 
         for idx, (q, q_emb) in enumerate(zip(queries, query_embeddings)):
-            docs_k, _ = _retrieve_documents(q_emb, doc_embeddings, corpus, self.retr_cfg)
-            all_retrieved.append(docs_k)
-            if generate:
-                ans = self.generator.generate(q, docs_k)
-                answers.append(ans)
-                self.logger.main.debug("[%d] Q: %s | A: %s", idx, q, ans[:60] + "…")
+            texts_k, scores_k, docids_k = self.retriever.retrieve(q_emb, top_k=cand_k)
 
-        # ----------------------------------------------------------------- EVAL
-        eval_cfg = self.cfg.get("evaluation", {})
+            # Aggregation: doc-level MaxSim
+            agg: Dict[int, float] = {}
+            for did, sc in zip(docids_k, scores_k):
+                prev = agg.get(did)
+                if (prev is None) or (sc > prev):
+                    agg[did] = sc
+
+            # Re-rank docs by max score (desc) and truncate to top_k unique
+            ranked_docids = sorted(agg, key=agg.get, reverse=True)[:top_k]
+            all_retrieved_docids.append(ranked_docids)
+
+            # Optional: context for LLM prioritizing chunks of top docs
+            if generate:
+                per_doc_cap = int(self.retr_cfg.get("max_chunks_per_doc", 2))
+                used: Dict[int, int] = {d: 0 for d in ranked_docids}
+                selected_chunks: List[str] = []
+                for t, d in zip(texts_k, docids_k):
+                    if d in used and used[d] < per_doc_cap:
+                        selected_chunks.append(t)
+                        used[d] += 1
+                    if len(selected_chunks) >= max(1, per_doc_cap * len(ranked_docids)):
+                        break
+                ctx_for_llm = selected_chunks if selected_chunks else texts_k[:top_k]
+                ans = self.generator.generate(q, ctx_for_llm)
+                answers.append(ans)
+                self.logger.main.debug("[%d] Q: %s | A: %s", idx, q, (ans[:60] + "…") if ans else "")
+
+        # Evaluation (doc-level, using doc_ids)
         if relevant_docs:
+            relevant_doc_ids: List[List[int]] = []
+            missing = 0
+            for rel_list in relevant_docs:
+                ids = []
+                for ctx in rel_list:
+                    did = context2docid.get(ctx)
+                    if did is not None:
+                        ids.append(did)
+                    else:
+                        missing += 1
+                relevant_doc_ids.append(ids)
+            if missing:
+                self.logger.main.warning("Relevant items missing from mapping: %d", missing)
+
+            retrieved_as_str = [[str(did) for did in row] for row in all_retrieved_docids]
+            relevant_as_str = [[str(did) for did in row] for row in relevant_doc_ids]
+
+            eval_cfg = self.cfg.get("evaluation", {})
             ret_metrics = _evaluate_retrieval(
-                all_retrieved,
-                relevant_docs,
+                retrieved_as_str,
+                relevant_as_str,
                 metrics=eval_cfg.get("retrieval_metrics", ["Recall@5"]),
             )
-            rprint("[bold magenta]\n[Retrieval evaluation]\n[/]")
+            rprint("\n[Retrieval evaluation]\n")
             for k, v in ret_metrics.items():
                 rprint(f"{k}: {v['mean']:.4f} ± {v['std']:.4f}")
 
+        # Optional generation metrics (requires many samples)
         if generate and relevant_docs and len(queries) >= 100:
-            # If the user provided refs with ≥100 samples we can bootstrap.
             gen_metrics = eval_generation(
-                references=list(relevant_docs),
+                references=[r[0] for r in relevant_docs],
                 candidates=answers,
-                metrics=eval_cfg.get("generation_metrics", ["ROUGE-L"]),
+                metrics=self.cfg.get("evaluation", {}).get("generation_metrics", ["ROUGE-L"]),
             )
-            rprint("[bold magenta]\n[Generation evaluation]\n[/]")
+            rprint("\n[Generation evaluation]\n")
             for m, d in gen_metrics.items():
                 rprint(f"{m}: {d['mean']:.2f} (CI 95%: {d['ci_lower']:.2f}–{d['ci_upper']:.2f})")
 
@@ -1531,7 +1767,7 @@ def _parse_args() -> argparse.Namespace:  # noqa: D401
 
     parser.add_argument("--dataset", choices=["squad", "uda"], default="squad",
                     help="Dataset for evaluation (SQuAD or UDA)")
-    parser.add_argument("--max_samples", type=int, default=200,
+    parser.add_argument("--max_samples", type=int, default=2000,
                         help="Maximum number of queries to use")
     parser.add_argument("--benchmark", action="store_true",
                         help="Compare against BM25, DPR, SBERT, AE...")
@@ -1564,6 +1800,7 @@ def main() -> None:  # noqa: D401 – standard script
     # --------------------------------------------------------------------- Run each variant
     for ae in ae_variants:
         rprint(f"\n[bold cyan]==== PIPELINE ({ae.upper()}) ====\n[/]")
+        _print_run_card(cfg, ae, generate=args.generate)
         runner = PipelineRunner(cfg, ae, log)
         runner.process(queries, corpus, relevant_docs=relevant, generate=args.generate)
 
@@ -1596,6 +1833,11 @@ class BaseAutoencoder(nn.Module, ABC):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         z = self.encode(x)
         return self.decode(z)
+
+"""
+
+models/checkpoints/vae_text.pth:Zone.Identifier
+"""
 
 """
 
@@ -1724,9 +1966,9 @@ class VariationalAutoencoder(BaseAutoencoder):
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         return self.decoder(z)
 
-    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x):
         mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
+        z = mu if not self.training else self.reparameterize(mu, logvar)
         x_reconstructed = self.decode(z)
         return x_reconstructed, mu, logvar
 
@@ -1746,7 +1988,8 @@ datasets>=2.19.0
 scipy>=1.10.0
 openai>=1.14.0
 pyserini>=0.21
-
+faiss-cpu
+faiss-gpu
 
 # Visualization & Analysis
 matplotlib>=3.7.0
@@ -1764,6 +2007,322 @@ python-dotenv>=1.0.0
 rich>=13.0.0
 
 pytest 
+"""
+
+retrieval/FAISSEmbeddingRetriever.py
+"""
+# retrieval/FAISSEmbeddingRetriever.py
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Sequence, Tuple, List, Optional, Dict, Any
+import json
+
+import numpy as np
+import faiss
+import torch
+
+
+class FAISSEmbeddingRetriever:
+    """
+    Indexador y recuperador FAISS para embeddings densos.
+
+    Características:
+      - Métrica INNER_PRODUCT (IP) con normalización L2: IP ≈ coseno.
+      - Persistencia opcional de índice + metadatos (textos, doc_ids y fingerprint).
+      - Reconstrucción automática si el índice en disco no es compatible
+        (dimensión, modelo de embedding, AE, chunking, etc.).
+      - Comprobación de sanidad tras indexar (self-search de un vector).
+    """
+
+    # ------------------------------- Init ---------------------------------- #
+    def __init__(
+        self,
+        embedding_dim: int,
+        index_path: Optional[str | Path] = None,
+        index_type: str = "hnsw",   # "flatip" | "hnsw" | "ivfpq"
+        use_gpu: bool = False,
+        *,
+        hnsw_M: int = 32,
+        ef_construction: int = 200,
+        ef_search: int = 64,
+    ):
+        self.d = int(embedding_dim)
+        self.index_type = index_type
+        self.path = Path(index_path) if index_path else None
+        self.use_gpu = use_gpu
+
+        self.hnsw_M = int(hnsw_M)
+        self.ef_construction = int(ef_construction)
+        self.ef_search = int(ef_search)
+
+        # Memoria de metadatos
+        self._texts: List[str] = []
+        self._doc_ids: List[int] = []
+        self.meta_fp: Dict[str, Any] = {}
+
+        # Índice (CPU por defecto)
+        self.index = self._build_index(self.d, self.index_type)
+
+        # Cargar índice si existe (lo validaremos en build())
+        if self.path and self.path.exists():
+            try:
+                cpu_index = faiss.read_index(str(self.path), faiss.IO_FLAG_MMAP)
+                # No cambiamos aún: la compatibilidad se decide en build()
+                self.index = cpu_index
+                self._load_metadata()
+            except Exception:
+                # Archivo corrupto o incompatible → empezamos limpio
+                self.index = self._build_index(self.d, self.index_type)
+                self._texts, self._doc_ids, self.meta_fp = [], [], {}
+
+        # Mover a GPU si procede
+        self.gpu_enabled = False
+        if self.use_gpu and hasattr(faiss, "StandardGpuResources"):
+            try:
+                if faiss.get_num_gpus() > 0:
+                    res = faiss.StandardGpuResources()
+                    self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+                    self.gpu_enabled = True
+                else:
+                    print("[WARN] FAISS GPU no disponible. Uso CPU.")
+            except Exception:
+                print("[WARN] FAISS GPU no disponible. Uso CPU.")
+
+        # Ajuste de parámetros HNSW
+        self._maybe_set_hnsw_params(self.index)
+
+    # ------------------------------ Helpers -------------------------------- #
+    def _build_index(self, d: int, kind: str) -> faiss.Index:
+        if kind == "flatip":                      # Exacto, IP
+            return faiss.IndexFlatIP(d)
+        if kind == "hnsw":                        # Aproximado, IP
+            idx = faiss.IndexHNSWFlat(d, self.hnsw_M, faiss.METRIC_INNER_PRODUCT)
+            idx.hnsw.efConstruction = self.ef_construction
+            idx.hnsw.efSearch = self.ef_search
+            return idx
+        if kind == "ivfpq":                       # Cuantización (no recomend. para N pequeño)
+            quant = faiss.IndexFlatIP(d)
+            return faiss.IndexIVFPQ(quant, d, 4096, 16, 8)
+        raise ValueError(f"Index type not supported: {kind}")
+
+    def _maybe_set_hnsw_params(self, index: faiss.Index) -> None:
+        # Ajusta efSearch si es HNSW
+        if isinstance(index, faiss.IndexHNSW):
+            index.hnsw.efSearch = self.ef_search
+        # Si está en GPU y es HNSW, FAISS gestiona internamente los equivalentes.
+
+    def _meta_path(self) -> Path:
+        assert self.path is not None
+        return self.path.with_suffix(self.path.suffix + ".meta.json")
+
+    def _save_metadata(self) -> None:
+        if not self.path:
+            return
+        meta = {
+            "texts": self._texts,
+            "doc_ids": self._doc_ids,
+            "fingerprint": self.meta_fp,
+        }
+        self._meta_path().parent.mkdir(parents=True, exist_ok=True)
+        with self._meta_path().open("w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False)
+
+    def _load_metadata(self) -> None:
+        if not self.path:
+            return
+        mp = self._meta_path()
+        if not mp.exists():
+            self._texts, self._doc_ids, self.meta_fp = [], [], {}
+            return
+        with mp.open("r", encoding="utf-8") as f:
+            meta = json.load(f)
+        self._texts = list(meta.get("texts", []))
+        self._doc_ids = list(meta.get("doc_ids", []))
+        self.meta_fp = dict(meta.get("fingerprint", {}))
+
+    @staticmethod
+    def _normalize_l2_inplace(x: np.ndarray) -> None:
+        # IP ≈ coseno si normalizamos L2
+        faiss.normalize_L2(x)
+
+    @staticmethod
+    def _fingerprint(
+        *,
+        d: int,
+        embedding_model: Optional[str],
+        ae_type: Optional[str],
+        latent_dim: Optional[int],
+        chunking_cfg: Optional[Dict[str, Any]],
+        metric: str = "ip",
+        normalize_l2: bool = True,
+        version: int = 1,
+    ) -> Dict[str, Any]:
+        ch = chunking_cfg or {}
+        return {
+            "d": int(d),
+            "embedding_model": embedding_model,
+            "ae_type": ae_type,
+            "latent_dim": int(latent_dim) if latent_dim is not None else None,
+            "chunking": {
+                "enabled": bool(ch.get("enabled", False)),
+                "mode": ch.get("mode", "sliding"),
+                "max_tokens": int(ch.get("max_tokens", 128)) if ch.get("max_tokens") is not None else None,
+                "stride": int(ch.get("stride", 64)) if ch.get("stride") is not None else None,
+                "min_tokens": int(ch.get("min_tokens", 48)) if ch.get("min_tokens") is not None else None,
+            },
+            "metric": metric,
+            "normalize_l2": bool(normalize_l2),
+            "version": int(version),
+        }
+
+    def _compatible(self, current_fp: Dict[str, Any]) -> bool:
+        m = self.meta_fp or {}
+        keys = ["d", "embedding_model", "ae_type", "latent_dim", "metric", "normalize_l2", "version"]
+        if any(m.get(k) != current_fp.get(k) for k in keys):
+            return False
+        mch = (m.get("chunking") or {})
+        cch = (current_fp.get("chunking") or {})
+        for k in ["enabled", "mode", "max_tokens", "stride", "min_tokens"]:
+            if mch.get(k) != cch.get(k):
+                return False
+        return True
+
+    # ------------------------------- Build --------------------------------- #
+    def build(
+        self,
+        embeddings: torch.Tensor,           # [N, D] (CPU/GPU), float32 preferido
+        texts: Sequence[str],
+        doc_ids: Sequence[int] | None = None,
+        train: bool = True,
+        *,
+        embedding_model_name: Optional[str] = None,
+        ae_type: Optional[str] = None,
+        latent_dim: Optional[int] = None,
+        chunking_cfg: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        assert len(embeddings) == len(texts), "len mismatch (embeddings vs texts)"
+        if doc_ids is not None:
+            assert len(texts) == len(doc_ids), "len mismatch (texts vs doc_ids)"
+
+        # 1) Preparar X (CPU, float32, C-contiguous) + normalización L2
+        x = embeddings.detach().cpu().numpy().astype("float32", copy=False)
+        self._normalize_l2_inplace(x)
+
+        # 2) Fingerprint actual
+        cur_fp = self._fingerprint(
+            d=int(x.shape[1]),
+            embedding_model=embedding_model_name,
+            ae_type=ae_type,
+            latent_dim=latent_dim,
+            chunking_cfg=chunking_cfg,
+            metric="ip",
+            normalize_l2=True,
+            version=1,
+        )
+
+        # 3) Validar índice en disco; si incompatible → reconstruir limpio
+        rebuild = False
+        if hasattr(self.index, "d") and int(getattr(self.index, "d")) != cur_fp["d"]:
+            rebuild = True
+        if (self.path and self.path.exists()) and (not self._compatible(cur_fp)):
+            rebuild = True
+
+        if rebuild:
+            # Volver a CPU si estamos en GPU
+            if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
+                try:
+                    self.index = faiss.index_gpu_to_cpu(self.index)
+                except Exception:
+                    pass
+            # Reconstruir
+            self.index = self._build_index(cur_fp["d"], self.index_type)
+            self._texts, self._doc_ids, self.meta_fp = [], [], {}
+            self._maybe_set_hnsw_params(self.index)
+            # Volver a GPU si aplica
+            if self.use_gpu and hasattr(faiss, "StandardGpuResources"):
+                try:
+                    if faiss.get_num_gpus() > 0:
+                        res = faiss.StandardGpuResources()
+                        self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+                        self.gpu_enabled = True
+                except Exception:
+                    self.gpu_enabled = False
+
+        # 4) Entrenar si aplica (IVF/IVFPQ) → con X normalizado
+        if train and hasattr(self.index, "train") and not self.index.is_trained:
+            self.index.train(x)
+
+        # 5) Añadir vectores
+        self.index.add(x)
+
+        # 6) Comprobación de sanidad mínima: self-search
+        try:
+            D_chk, I_chk = self.index.search(x[:1], 1)
+            if I_chk.shape[0] == 0 or I_chk[0, 0] != 0:
+                print("[ERROR] FAISS sanity check failed; rebuilding index")
+                # Reconstruir y re-add
+                if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
+                    try:
+                        self.index = faiss.index_gpu_to_cpu(self.index)
+                    except Exception:
+                        pass
+                self.index = self._build_index(cur_fp["d"], self.index_type)
+                self._maybe_set_hnsw_params(self.index)
+                if train and hasattr(self.index, "train") and not self.index.is_trained:
+                    self.index.train(x)
+                self.index.add(x)
+        except Exception:
+            # Si algo falla en el sanity, reconstruimos igualmente
+            self.index = self._build_index(cur_fp["d"], self.index_type)
+            self._maybe_set_hnsw_params(self.index)
+            if train and hasattr(self.index, "train") and not self.index.is_trained:
+                self.index.train(x)
+            self.index.add(x)
+
+        # 7) Metadatos en memoria
+        self._texts.extend(list(texts))
+        self._doc_ids.extend(list(doc_ids) if doc_ids is not None else [-1] * len(texts))
+        self.meta_fp = cur_fp
+
+        # 8) Persistencia (si se configuró path). Siempre escribir en CPU.
+        if self.path:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            cpu_index = self.index
+            if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
+                try:
+                    cpu_index = faiss.index_gpu_to_cpu(self.index)
+                except Exception:
+                    cpu_index = self.index  # fallback
+            faiss.write_index(cpu_index, str(self.path))
+            self._save_metadata()
+
+        # 9) Log breve (útil para auditoría)
+        try:
+            ntotal = getattr(self.index, "ntotal", -1)
+            print(f"[FAISS] type={type(self.index).__name__} d={cur_fp['d']} ntotal={ntotal} metric=IP normL2=True")
+        except Exception:
+            pass
+
+    # ------------------------------ Retrieve ------------------------------- #
+    def retrieve(self, query_emb: torch.Tensor, top_k: int = 10) -> Tuple[List[str], List[float], List[int]]:
+        if query_emb.dim() == 1:
+            query_emb = query_emb.unsqueeze(0)
+        q = query_emb.detach().cpu().numpy().astype("float32", copy=False)
+        self._normalize_l2_inplace(q)
+
+        D, I = self.index.search(q, top_k)  # IP → D = similitudes (mayor=mejor)
+        idxs = I[0].tolist()
+
+        # Protección si faltan metadatos (compatibilidad)
+        if not self._texts or not self._doc_ids:
+            self._load_metadata()
+
+        texts = [self._texts[i] for i in idxs]
+        scores = D[0].tolist()
+        docids = [self._doc_ids[i] for i in idxs]
+        return texts, scores, docids
+
 """
 
 retrieval/base.py
@@ -1808,6 +2367,65 @@ class BM25Retriever(BaseRetriever):
     def retrieve(self, query, k):
         hits = self._searcher.search(query, k)
         return [(h.raw, float(h.score)) for h in hits]
+
+"""
+
+retrieval/bruteforce.py
+"""
+# retrieval/bruteforce.py
+from __future__ import annotations
+from typing import Sequence, Tuple, List, Literal
+
+import torch
+import torch.nn.functional as F
+
+Similarity = Literal["cosine", "euclidean"]
+
+class BruteForceRetriever:
+    def __init__(
+        self,
+        embeddings: torch.Tensor,   # [N × D] CPU float32
+        texts: Sequence[str],
+        doc_ids: Sequence[int] | None = None,
+        metric: Similarity = "cosine",
+    ):
+        if doc_ids is not None:
+            assert len(texts) == len(doc_ids), "len mismatch (texts vs doc_ids)"
+
+        if embeddings.device.type != "cpu":
+            embeddings = embeddings.cpu()
+
+        self.texts = list(texts)
+        self.doc_ids = list(doc_ids) if doc_ids is not None else list(range(len(texts)))
+        self.metric = metric
+
+        self.emb = embeddings
+        if metric == "cosine":
+            self.emb = F.normalize(self.emb, p=2, dim=1)
+
+    def retrieve(
+        self, query_emb: torch.Tensor, top_k: int = 10
+    ) -> Tuple[List[str], List[float], List[int]]:
+        if query_emb.device.type != "cpu":
+            query_emb = query_emb.cpu()
+
+        if self.metric == "cosine":
+            q = F.normalize(query_emb, p=2, dim=0)
+            scores = torch.mv(self.emb, q)            # [N]
+        elif self.metric == "euclidean":
+            diff = self.emb - query_emb
+            scores = -torch.norm(diff, dim=1)
+        else:
+            raise ValueError(self.metric)
+
+        top_k = min(top_k, scores.numel())
+        vals, idxs = torch.topk(scores, k=top_k)
+        idxs = idxs.tolist()
+        return (
+            [self.texts[i] for i in idxs],
+            vals.tolist(),
+            [self.doc_ids[i] for i in idxs],
+        )
 
 """
 
@@ -1913,112 +2531,30 @@ import numpy as np
 from sklearn.covariance import EmpiricalCovariance
 from typing import List, Tuple, Literal
 
-SimilarityMetric = Literal["cosine", "euclidean", "mahalanobis"]
 
-###############################################################################
-#  MATRICES DE SIMILITUD                                                      #
-###############################################################################
+# FAISS
 
-def cosine_similarity_matrix(
-    query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor
-) -> np.ndarray:
-    """Matriz [Q × N] con similitud coseno."""
-    q_norm = F.normalize(query_embeddings, p=2, dim=1)
-    d_norm = F.normalize(doc_embeddings, p=2, dim=1)
-    sim = torch.mm(q_norm, d_norm.T)  # [Q, N]
-    return sim.cpu().numpy()
+from typing import Sequence
+from retrieval.FAISSEmbeddingRetriever import FAISSEmbeddingRetriever
 
-
-def euclidean_similarity_matrix(
-    query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor
-) -> np.ndarray:
-    """Matriz [Q × N] con "+similitud" inversa a la distancia euclídea."""
-    q = query_embeddings.unsqueeze(1)  # [Q, 1, D]
-    d = doc_embeddings.unsqueeze(0)  # [1, N, D]
-    dist = torch.norm(q - d, dim=2)  # [Q, N]
-    return (-dist).cpu().numpy()  # valores altos = más similares
-
-
-def mahalanobis_similarity_matrix(
-    query_embeddings: torch.Tensor, doc_embeddings: torch.Tensor, eps: float = 1e-6
-) -> np.ndarray:
-    """Matriz [Q × N] con similitud inversa de la distancia de Mahalanobis.
-
-    *Se ajusta la matriz de covarianza exclusivamente sobre los documentos* para
-    preservar la simetría deseada en el espacio de recuperación.
-    """
-    # -- Datos a NumPy -------------------------------------------------------
-    d_np: np.ndarray = doc_embeddings.cpu().numpy()
-    q_np: np.ndarray = query_embeddings.cpu().numpy()
-
-    # -- Precisión (inversa de la covarianza) -------------------------------
-    # EmpiricalCovariance añade regularización de Ledoit‑Wolf si el sistema lo
-    # necesita, pero incluimos un término eps para garantizar invertibilidad.
-    emp = EmpiricalCovariance(assume_centered=False).fit(d_np)
-    VI: np.ndarray = emp.precision_ + eps * np.eye(d_np.shape[1], dtype=np.float64)
-
-    # -- Distancias ----------------------------------------------------------
-    diff = q_np[:, None, :] - d_np[None, :, :]  # [Q, N, D]
-    # einsum: (q n d, d d, q n d) → (q n)
-    dist = np.einsum("qnd,dd,qnd->qn", diff, VI, diff, optimize=True)
-
-    # -- Convertir a "similitud" (negativo de la distancia) -----------------
-    sim = -dist  # altos valores ⇒ mayor similitud
-    return sim.astype(np.float32)
-
-
-###############################################################################
-#  FRONT‑END DE RECUPERACIÓN                                                  #
-###############################################################################
-
-def compute_similarity(
-    query_embeddings: torch.Tensor,
-    doc_embeddings: torch.Tensor,
-    metric: SimilarityMetric = "cosine",
-) -> np.ndarray:
-    """Devuelve matriz [Q × N] según la métrica solicitada y valida formas."""
-
-    if query_embeddings.dim() == 1:
-        query_embeddings = query_embeddings.unsqueeze(0)
-    if doc_embeddings.dim() == 1:
-        doc_embeddings = doc_embeddings.unsqueeze(0)
-
-    funcs = {
-        "cosine": cosine_similarity_matrix,
-        "euclidean": euclidean_similarity_matrix,
-        "mahalanobis": mahalanobis_similarity_matrix,
-    }
-
-    if metric not in funcs:
-        raise ValueError(f"Métrica de similitud '{metric}' no soportada.")
-
-    sim = funcs[metric](query_embeddings, doc_embeddings)
-
-    # -------- Validación de forma -----------------------------------------
-    q, d = query_embeddings.shape[0], doc_embeddings.shape[0]
-    if sim.shape != (q, d):
-        raise RuntimeError(
-            f"Shape mismatch: expected ({q}, {d}) got {sim.shape} for metric '{metric}'."
+def build_retriever(
+    embeddings: torch.Tensor,
+    texts: Sequence[str],
+    doc_ids: Sequence[int],
+    cfg: dict,
+):
+    if cfg.get("backend", "faiss") == "faiss":
+        ret = FAISSEmbeddingRetriever(
+            embedding_dim=embeddings.size(1),
+            index_path=cfg.get("index_path"),
+            index_type=cfg.get("index_type", "hnsw"),
+            use_gpu=cfg.get("use_gpu", False),
         )
-    return sim
-
-
-def retrieve_top_k(
-    query_embedding: torch.Tensor,
-    doc_embeddings: torch.Tensor,
-    doc_texts: List[str],
-    k: int = 5,
-    metric: SimilarityMetric = "cosine",
-) -> List[Tuple[str, float]]:
-    """Recupera los *k* documentos con mayor similitud."""
-
-    sim_scores = compute_similarity(query_embedding, doc_embeddings, metric)  # [Q, N]
-    # Suponemos única consulta (Q = 1) para esta utilidad.
-    if sim_scores.shape[0] != 1:
-        raise ValueError("Esta función está pensada para una única consulta.")
-
-    top_idx = sim_scores[0].argsort()[::-1][:k]
-    return [(doc_texts[i], float(sim_scores[0, i])) for i in top_idx]
+        ret.build(embeddings, texts, doc_ids, train=True)
+        return ret
+    else:
+        from retrieval.bruteforce import BruteForceRetriever
+        return BruteForceRetriever(embeddings, texts, doc_ids)
 
 """
 
@@ -2087,7 +2623,7 @@ do
 
   # Skip files with undesired extensions
   case "$FILE" in
-    *.pt|*.pth|*.ipynb|*.log|*.tmp|*.bak|*.swp|*.zip|*.tar|*.gz|*.rar|*.DS_Store|*.png|*.jpg|*.jpeg|*.gif|*.bmp|*.tiff|*.ico|*.webp|*.svg|*.mp4|*.avi|*.mkv|*.mov|*.wmv|*.flv|*.mp3|*.wav|*.ogg|*.code-workspace|*.vscode|*.idea|*.git|*.svn|*.hg)
+    *.pt|*.pth|*.ipynb|*.parquet|*.log|*.json|*.tmp|*.bak|*.swp|*.zip|*.tar|*.gz|*.rar|*.DS_Store|*.png|*.jpg|*.jpeg|*.gif|*.bmp|*.tiff|*.ico|*.webp|*.svg|*.mp4|*.avi|*.mkv|*.mov|*.wmv|*.flv|*.mp3|*.wav|*.ogg|*.code-workspace|*.vscode|*.idea|*.git|*.svn|*.hg|*.faiss)
       continue
       ;;
   esac
@@ -2320,6 +2856,14 @@ class ContrastiveAutoencoder(nn.Module):
 
 """
 
+
+training/loss_functions.py
+"""
+# /training/loss_functions.py
+
+import torch
+import torch.nn.functional as F
+
 ###############################################################################
 #  VAE                                                                        #
 ###############################################################################
@@ -2345,14 +2889,11 @@ def vae_loss(
         mse_reduction:   "mean" (recommended) or "sum"
         beta:            weight of the KL term (β-VAE)
     """
-    # ── 1. reconstruction error ─────────────────────────────────────────
-    recon = F.mse_loss(x_reconstructed, x_target, reduction=mse_reduction)
-
-    # ── 2. KL (normalized) ───────────────────────────────────────────────
-    #   KL(q(z|x) || N(0,1))  =  -½ Σ_i (1 + logσ²_i − μ²_i − σ²_i)
-    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean()  # ← .mean() ≈ /B/Z
-
+    cos = F.cosine_similarity(x_reconstructed, x_target, dim=-1)
+    recon = (1.0 - cos).mean()
+    kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean()
     return recon + beta * kl
+
 
 ###############################################################################
 #  DAE                                                                        #
@@ -2908,12 +3449,431 @@ if __name__ == "__main__":
 
 """
 
+utils/chunk_utils.py
+"""
+
+
+# utils/chunk_utils.py
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, Iterable, List, Literal, Sequence, Tuple
+
+import pandas as pd
+from transformers import AutoTokenizer
+
+LOGGER = logging.getLogger(__name__)
+
+ChunkMode = Literal["sliding", "semantic"]
+from tqdm import tqdm 
+
+###############################################################################
+# Main chunker                                                                #
+###############################################################################
+
+def chunk_context_with_alignment(
+    context: str,
+    answer_start: int,
+    answer_end: int,
+    *,
+    max_tokens: int = 128,
+    stride: int = 64,
+    tokens_before: int = 32,
+    tokens_after: int = 32,
+    tokenizer_name: str = 'sentence-transformers/all-MiniLM-L6-v2',
+) -> List[str]:
+    """Chunk context ensuring answer span tokens appear in at least one chunk."""
+    tok = _get_tokenizer(tokenizer_name)
+
+    enc = tok(context, add_special_tokens=False, return_offsets_mapping=True)
+    input_ids: List[int] = enc["input_ids"]
+    offsets: List[Tuple[int, int]] = enc["offset_mapping"]
+
+    try:
+        t_start, t_end = _char_to_token_span(offsets, answer_start, answer_end)
+    except ValueError:
+        LOGGER.warning("[chunk_utils] Span alignment failed; using full context.")
+        return [context.strip()]
+
+    answer_ids = input_ids[t_start : t_end + 1]
+    n_tokens = len(input_ids)
+
+    # 1) Centred window ----------------------------------------------------
+    win_start = max(0, t_start - tokens_before)
+    win_end = min(n_tokens, t_end + tokens_after + 1)
+    cur_len = win_end - win_start
+    if cur_len < max_tokens:
+        pad = max_tokens - cur_len
+        pre = min(pad // 2, win_start)
+        post = min(pad - pre, n_tokens - win_end)
+        win_start -= pre
+        win_end += post
+
+    centred_ids = input_ids[win_start:win_end]
+    centred_chunk = tok.decode(
+        centred_ids,
+        skip_special_tokens=True,
+        clean_up_tokenization_spaces=True,
+    ).strip()
+
+    # 2) Sliding windows ---------------------------------------------------
+    sliding_chunks: List[Tuple[str, List[int]]] = []
+    idx = 0
+    while idx < n_tokens:
+        sw_end = min(idx + max_tokens, n_tokens)
+        ids_slice = input_ids[idx:sw_end]
+        ch_str = tok.decode(
+            ids_slice,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=True,
+        ).strip()
+        sliding_chunks.append((ch_str, ids_slice))
+        if sw_end == n_tokens:
+            break
+        idx += stride
+
+    # 3) Combine + deduplicate -------------------------------------------
+    out: List[str] = []
+    out_ids: List[List[int]] = []
+    seen = set()
+
+    # first centred chunk
+    if centred_chunk:
+        out.append(centred_chunk)
+        out_ids.append(centred_ids)
+        seen.add(centred_chunk)
+
+    for ch_str, ids_slice in sliding_chunks:
+        if ch_str and ch_str not in seen:
+            out.append(ch_str)
+            out_ids.append(ids_slice)
+            seen.add(ch_str)
+
+    # 4) Integrity check on original ids ----------------------------------
+    if not any(_has_subseq(ids, answer_ids) for ids in out_ids):
+        LOGGER.warning(
+            "[chunk_utils] Answer span missing after chunking; adding full context."
+        )
+        out.append(context.strip())
+
+    return out
+
+
+# ============================== Tokenizer cache ==============================
+
+@lru_cache(maxsize=4)
+def _get_tokenizer(model_name: str):
+    tok = AutoTokenizer.from_pretrained(model_name, use_fast=True)
+    if not tok.is_fast:
+        raise ValueError(
+            f"Tokenizer '{model_name}' must be a *fast* tokenizer to provide offset mappings."
+        )
+    return tok
+
+# ============================== Data structures ==============================
+
+@dataclass(frozen=True)
+class ChunkRecord:
+    """Lightweight record for a chunk with token/char spans."""
+    doc_id: int
+    tok_start: int
+    tok_end: int           # inclusive
+    char_start: int
+    char_end: int          # exclusive
+    text: str
+
+# ============================== Helpers =====================================
+
+def _has_subseq(hay: Sequence[int], needle: Sequence[int]) -> bool:
+    n = len(needle)
+    if n == 0 or n > len(hay):
+        return False
+    for i in range(len(hay) - n + 1):
+        if hay[i : i + n] == list(needle):
+            return True
+    return False
+
+
+def _char_to_token_span(
+    offsets: Sequence[Tuple[int, int]],
+    char_start: int,
+    char_end: int,
+) -> Tuple[int, int]:
+    tok_start = tok_end = None
+    for i, (s, e) in enumerate(offsets):
+        if tok_start is None and s <= char_start < e:
+            tok_start = i
+        if s < char_end <= e:
+            tok_end = i
+            break
+    if tok_start is None or tok_end is None:
+        raise ValueError("Answer span could not be aligned to token offsets.")
+    return tok_start, tok_end
+
+# ============================== Inference chunkers ===========================
+
+# utils/chunk_utils.py
+
+def sliding_window_chunker(
+    text: str,
+    *,
+    max_tokens: int = 128,
+    stride: int = 64,
+    tokenizer_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+) -> List[ChunkRecord]:
+    """Return fixed-size overlapping chunks (token-based).
+
+    The chunk text is built from character slices aligned to token boundaries
+    to avoid WordPiece artifacts (e.g., '##suffix') and ensure that re-tokenising
+    the chunk never exceeds `max_tokens`.
+    """
+    tok = _get_tokenizer(tokenizer_name)
+    enc = tok(text, add_special_tokens=False, return_offsets_mapping=True)
+    input_ids: List[int] = enc["input_ids"]
+    offsets: List[Tuple[int, int]] = enc["offset_mapping"]
+    n = len(input_ids)
+
+    out: List[ChunkRecord] = []
+    i = 0
+    while i < n:
+        end = min(i + max_tokens, n)
+        # character-aligned slice covering tokens [i, end)
+        char_start = offsets[i][0]
+        char_end = offsets[end - 1][1]
+        chunk_text = text[char_start:char_end].strip()
+        if chunk_text:
+            out.append(
+                ChunkRecord(
+                    doc_id=-1,
+                    tok_start=i,
+                    tok_end=end - 1,
+                    char_start=char_start,
+                    char_end=char_end,
+                    text=chunk_text,
+                )
+            )
+        if end == n:
+            break
+        i += stride
+    return out
+
+
+def semantic_window_chunker(
+    text: str,
+    *,
+    max_tokens: int = 128,
+    stride: int = 64,
+    min_tokens: int = 48,
+    tokenizer_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    boundary_chars: str = ".!?;:\n",
+) -> List[ChunkRecord]:
+    """Return chunks that try to end at punctuation boundaries near max_tokens.
+
+    Heuristic:
+      - Start a window at `start`.
+      - Prefer ending at the nearest token (within [start+min_tokens, start+max_tokens])
+        whose *last character* is in `boundary_chars`.
+      - If none is found, end at `start+max_tokens`.
+    Text is reconstructed via character slicing aligned to token boundaries.
+    """
+    tok = _get_tokenizer(tokenizer_name)
+    enc = tok(text, add_special_tokens=False, return_offsets_mapping=True)
+    input_ids: List[int] = enc["input_ids"]
+    offsets: List[Tuple[int, int]] = enc["offset_mapping"]
+    n = len(input_ids)
+
+    out: List[ChunkRecord] = []
+    seen_spans: set[Tuple[int, int]] = set()
+    start = 0
+
+    while start < n:
+        hard_end = min(start + max_tokens, n)
+        soft_floor = min(hard_end - 1, max(start + min_tokens, start + 1))
+
+        # search backward for a punctuation boundary
+        best_end = None
+        j = hard_end - 1
+        while j >= soft_floor:
+            _, ce = offsets[j]
+            if ce > 0:
+                last_char = text[ce - 1]
+                if last_char in boundary_chars:
+                    best_end = j + 1  # make `end` exclusive
+                    break
+            j -= 1
+        end = best_end or hard_end
+
+        span = (start, end - 1)
+        if span not in seen_spans:
+            seen_spans.add(span)
+            char_start = offsets[start][0]
+            char_end = offsets[end - 1][1]
+            chunk_text = text[char_start:char_end].strip()
+            if chunk_text:
+                out.append(
+                    ChunkRecord(
+                        doc_id=-1,
+                        tok_start=start,
+                        tok_end=end - 1,
+                        char_start=char_start,
+                        char_end=char_end,
+                        text=chunk_text,
+                    )
+                )
+
+        if end == n:
+            break
+        start += stride
+
+    return out
+
+# ============================== Builders ====================================
+def build_chunked_corpus(
+    squad_split,
+    *,
+    max_tokens: int = 128,
+    stride: int = 64,
+    tokens_before: int = 32,
+    tokens_after: int = 32,
+    tokenizer_name: str = "bert-base-uncased",
+    store_chunk_text: bool = True,        # <-- NUEVO
+) -> Tuple[List[str], pd.DataFrame]:
+    """
+    Devuelve (chunks, index).  
+    Si *store_chunk_text* es False la columna `chunk_text NO se guarda,
+    reduciendo drásticamente el peso en disco.
+    """
+    tok = _get_tokenizer(tokenizer_name)
+    chunks: List[str] = []
+    records: List[Dict] = []
+
+    for doc_id, ex in tqdm(
+        enumerate(squad_split),
+        total=len(squad_split),
+        desc="Chunking SQuAD",
+    ):
+        ctx = ex["context"].rstrip()
+        if not ctx:
+            continue
+        answers = ex["answers"]
+        if not answers["text"]:
+            continue
+        ans_text = answers["text"][0]
+        a_start = answers["answer_start"][0]
+        a_end = a_start + len(ans_text)
+
+        doc_chunks = chunk_context_with_alignment(
+            ctx,
+            a_start,
+            a_end,
+            max_tokens=max_tokens,
+            stride=stride,
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            tokenizer_name=tokenizer_name,
+        )
+
+        answer_ids = tok(ans_text, add_special_tokens=False)["input_ids"]
+        for ch in doc_chunks:
+            cid = len(chunks)
+            chunks.append(ch)
+            ch_ids = tok(ch, add_special_tokens=False)["input_ids"]
+            contains = _has_subseq(ch_ids, answer_ids)
+
+            rec = {
+                "chunk_id": cid,
+                "doc_id": doc_id,
+                "contains_answer": contains,
+            }
+            if store_chunk_text:            
+                rec["chunk_text"] = ch
+            records.append(rec)
+
+    index = pd.DataFrame.from_records(records).set_index("chunk_id")
+    return chunks, index
+
+def build_inference_corpus(
+    docs: Sequence[str],
+    *,
+    mode: ChunkMode = "sliding",
+    max_tokens: int = 128,
+    stride: int = 64,
+    min_tokens: int = 48,
+    tokenizer_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    store_chunk_text: bool = True,
+) -> Tuple[List[str], pd.DataFrame]:
+    """Materialise a chunk-level corpus for test/inference.
+
+    Returns:
+        chunks: list of chunk texts (for embedding/FAISS).
+        index:  DataFrame indexed by chunk_id with columns:
+                ['doc_id','tok_start','tok_end','char_start','char_end', 'chunk_text?'].
+    """
+    chunks: List[str] = []
+    records: List[Dict] = []
+    chunker = sliding_window_chunker if mode == "sliding" else semantic_window_chunker
+
+    for doc_id, text in enumerate(docs):
+        if not text:
+            continue
+        recs = chunker(
+            text,
+            max_tokens=max_tokens,
+            stride=stride,
+            tokenizer_name=tokenizer_name,
+            **({} if mode == "sliding" else {"min_tokens": min_tokens}),
+        )
+        for r in recs:
+            cid = len(chunks)
+            chunks.append(r.text)
+            row = {
+                "chunk_id": cid,
+                "doc_id": doc_id,
+                "tok_start": r.tok_start,
+                "tok_end": r.tok_end,
+                "char_start": r.char_start,
+                "char_end": r.char_end,
+            }
+            if store_chunk_text:
+                row["chunk_text"] = r.text
+            records.append(row)
+
+    df = pd.DataFrame.from_records(records).set_index("chunk_id")
+    return chunks, df
+
+# ============================== Persistence =================================
+
+def save_chunk_index(path, df: pd.DataFrame):
+    path = str(path)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(path)
+
+
+def load_chunk_index(path):
+    return pd.read_parquet(path)
+
+__all__ = [
+    "ChunkRecord",
+    "sliding_window_chunker",
+    "semantic_window_chunker",
+    "build_inference_corpus",
+    "chunk_context_with_alignment",
+    "build_chunked_corpus",
+    "save_chunk_index",
+    "load_chunk_index",
+]
+
+"""
+
 utils/data_utils.py
 """
 # /utils/data_utils.py
 from __future__ import annotations
 import os
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Sequence
 
 import torch
 from datasets import load_dataset
@@ -2925,19 +3885,69 @@ from torch.utils.data import Subset
 from pathlib import Path
 from hashlib import sha1
 
+import pandas as pd
+
+from utils.chunk_utils import (
+    sliding_window_chunker,
+    semantic_window_chunker,
+)
+
+
+import pandas as pd
+from utils.chunk_utils import build_inference_corpus, save_chunk_index
+
+###############################################################################
+# SBERT caching                                                               #
+###############################################################################
+def text_hash(text: str) -> str:
+    import hashlib
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
 def _compute_embeddings(
-    texts: List[str],
+    texts: Sequence[str],
     model: SentenceTransformer,
     batch_size: int = 64,
 ) -> torch.Tensor:
-    """Devuelve un tensor CPU float32 [N × D] con los CLS-embeddings."""
-    chunks: List[torch.Tensor] = []
+    """Return CLS embeddings as a `[N × D]` *float32* CPU tensor."""
+    acc: List[torch.Tensor] = []
     for i in tqdm(range(0, len(texts), batch_size), desc="Embedding"):
         batch = texts[i : i + batch_size]
         with torch.no_grad():
             emb = model.encode(batch, convert_to_numpy=True, show_progress_bar=False)
-            chunks.append(torch.from_numpy(emb))
-    return torch.cat(chunks, dim=0).float()
+            acc.append(torch.from_numpy(emb))
+    return torch.cat(acc).float()
+
+
+def _texts_fingerprint(texts: Sequence[str]) -> str:
+    h = sha1()
+    for t in texts:
+        h.update(t.encode("utf-8"))
+    return h.hexdigest()[:10]
+
+
+def ensure_sbert_cache(
+    texts: Sequence[str],
+    *,
+    model_name: str,
+    cache_dir: str = "./data/SBERT",
+    batch_size: int = 64,
+    force: bool = False,
+) -> torch.Tensor:
+    os.makedirs(cache_dir, exist_ok=True)
+    fp = _texts_fingerprint(texts)
+    tag = model_name.split("/")[-1]
+    path = os.path.join(cache_dir, f"sbert_{fp}_{tag}.pt")
+
+    if not force and os.path.exists(path):
+        return torch.load(path, map_location="cpu")
+
+    print(f"[INFO] SBERT cache miss → encoding {len(texts):,} texts …")
+    model = SentenceTransformer(model_name)
+    emb = _compute_embeddings(texts, model, batch_size=batch_size)
+    torch.save(emb, path)
+    print(f"[OK]  SBERT embeddings saved → {path}")
+    return emb
 
 def _jaccard_sim(a: str, b: str) -> float:
     a_set = set(a.lower().split())
@@ -2955,6 +3965,72 @@ def _texts_fingerprint(texts: List[str]) -> str:
     for t in texts:
         h.update(t.encode("utf-8"))
     return h.hexdigest()[:10]                # 40 bits bastan para colisiones muy raras
+
+def prepare_inference_chunks(
+    docs: Sequence[str],
+    *,
+    mode: str = "sliding",                     # "sliding" | "semantic"
+    max_tokens: int = 128,
+    stride: int = 64,
+    min_tokens: int = 48,                      # solo usado en semantic
+    tokenizer_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    index_out: str | None = None,              # parquet opcional
+    store_chunk_text: bool = True,
+) -> Tuple[List[str], pd.DataFrame]:
+    """Chunk the given documents for test/inference and (optionally) persist an index.
+
+    Returns:
+        chunks: list[str] with chunk texts in corpus order.
+        index : DataFrame indexed by chunk_id with:
+                ['doc_id','tok_start','tok_end','char_start','char_end', 'chunk_text?'].
+    """
+    chunks: List[str] = []
+    records: List[Dict] = []
+
+    chunker = sliding_window_chunker if mode == "sliding" else semantic_window_chunker
+
+    for doc_id, text in enumerate(docs):
+        if not text:
+            continue
+        recs = (
+            chunker(
+                text,
+                max_tokens=max_tokens,
+                stride=stride,
+                tokenizer_name=tokenizer_name,
+            )
+            if mode == "sliding"
+            else semantic_window_chunker(
+                text,
+                max_tokens=max_tokens,
+                stride=stride,
+                min_tokens=min_tokens,
+                tokenizer_name=tokenizer_name,
+            )
+        )
+        for r in recs:
+            cid = len(chunks)
+            chunks.append(r.text)
+            row = {
+                "chunk_id": cid,
+                "doc_id": doc_id,
+                "tok_start": r.tok_start,
+                "tok_end": r.tok_end,
+                "char_start": r.char_start,
+                "char_end": r.char_end,
+            }
+            if store_chunk_text:
+                row["chunk_text"] = r.text
+            records.append(row)
+
+    index = pd.DataFrame.from_records(records).set_index("chunk_id")
+
+    if index_out:
+        outp = Path(index_out)
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        index.to_parquet(outp)
+
+    return chunks, index
 
 
 def ensure_sbert_cache(
@@ -3092,45 +4168,39 @@ def split_dataset(dataset: torch.utils.data.Dataset, val_split: float = 0.1, see
     train_idx = idx[n_val:]
     return Subset(dataset, train_idx), Subset(dataset, val_idx)
 
-
 def ensure_squad_data(
     *,
-    output_dir: str = "./data",
+    output_dir: str = "./data/SQUAD",
     max_samples: Optional[int] = None,
     base_model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
     noise_std: float = 0.05,
     include_unanswerable: bool = False,
     force: bool = False,
+    chunk_max_tokens: int = 128,
+    chunk_stride: int = 64,
+    tokens_before: int = 32,
+    tokens_after: int = 32,
+    tokenizer_name: str | None = None,
+    visualize: bool = False  # New parameter to control visualization
 ) -> None:
-    """
-    Pre-procesa **SQuAD v1/v2** y genera los tensores de entrenamiento:
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from collections import defaultdict
 
-        squad_vae_embeddings.pt
-        squad_dae_embeddings.pt
-        squad_contrastive_embeddings.pt
-
-    Ahorra tiempo reutilizando una única caché SBERT para queries y
-    contextos positivos; sólo los negativos se codifican aparte.
-    """
     os.makedirs(output_dir, exist_ok=True)
 
-    vae_path         = os.path.join(output_dir, "squad_vae_embeddings.pt")
-    dae_path         = os.path.join(output_dir, "squad_dae_embeddings.pt")
-    contrastive_path = os.path.join(output_dir, "squad_contrastive_embeddings.pt")
+    vae_path = Path(output_dir, "squad_vae_embeddings.pt")
+    dae_path = Path(output_dir, "squad_dae_embeddings.pt")
+    con_path = Path(output_dir, "squad_contrastive_embeddings.pt")
+    idx_path = Path(output_dir, "chunk_index.parquet")
 
-    # ------------------------------------------------------------------ #
-    #  0. Early-exit si todo existe                                       #
-    # ------------------------------------------------------------------ #
     if (
         not force
-        and all(os.path.exists(p) for p in (vae_path, dae_path, contrastive_path))
+        and all(p.exists() for p in (vae_path, dae_path, con_path, idx_path))
     ):
         print("[INFO] SQuAD embeddings already prepared — nothing to do.")
         return
 
-    # ------------------------------------------------------------------ #
-    #  1. Cargar SQuAD                                                   #
-    # ------------------------------------------------------------------ #
     ds_name = "squad_v2" if include_unanswerable else "squad"
     print(f"[INFO] Loading {ds_name} …")
     squad = load_dataset(ds_name, split="train")
@@ -3138,88 +4208,100 @@ def ensure_squad_data(
         squad = squad.select(range(min(max_samples, len(squad))))
     print(f"[INFO] SQuAD loaded with {len(squad):,} examples.")
 
-    # ------------------------------------------------------------------ #
-    #  2. Construir textos y tripletas                                   #
-    # ------------------------------------------------------------------ #
+    print("[INFO] Chunking contexts (answer‑aware) …")
+    chunks, chunk_index = build_chunked_corpus(
+        squad,
+        max_tokens=chunk_max_tokens,
+        stride=chunk_stride,
+        tokens_before=tokens_before,
+        tokens_after=tokens_after,
+        tokenizer_name=tokenizer_name or base_model_name,
+    )
+
+    save_chunk_index(idx_path, chunk_index)
+    print(f"[OK]  Chunk index saved → {idx_path}")
+
+    # Preindexar: {doc_id → [chunk_id con respuesta]}
+    doc_chunks: Dict[int, List[int]] = defaultdict(list)
+    for cid, row in chunk_index.iterrows():
+        if row["contains_answer"]:
+            doc_chunks[row["doc_id"]].append(cid)
+
     clean_texts: List[str] = []
-    contrastive_triples: List[Tuple[str, str, str]] = []
+    pos_chunks: List[str] = []
+    doc_ids_skipped: List[int] = []
 
-    for i, ex in enumerate(squad):
-        q   = ex["question"].strip()
-        ctx = ex["context"].strip()
-        if not q or not ctx:
-            continue
+    for doc_id, ex in enumerate(squad):
+        q = ex["question"].strip()
+        if doc_id in doc_chunks and doc_chunks[doc_id]:
+            cid = doc_chunks[doc_id][0]
+            pos_chunk = chunks[cid]
+            clean_texts.extend((q, pos_chunk))
+            pos_chunks.append(pos_chunk)
+        else:
+            doc_ids_skipped.append(doc_id)
 
-        # -------- obtener negativo poco parecido ----------------------- #
-        neg = None
-        for _ in range(10):
-            j = random.randint(0, len(squad) - 1)
-            if j == i:
-                continue
-            neg_ctx = squad[j]["context"].strip()
-            if neg_ctx and _jaccard_sim(q, neg_ctx) < 0.1:
-                neg = neg_ctx
-                break
-        if neg is None:
-            continue
+    if doc_ids_skipped and visualize:
+        print(f"[WARN] No chunk found with answer for {len(doc_ids_skipped)} documents.")
+        sns.set_theme()
+        plt.figure(figsize=(8, 4))
+        sns.histplot(doc_ids_skipped, bins=50, kde=False)
+        plt.title("Distribución de documentos sin chunk con respuesta")
+        plt.xlabel("doc_id")
+        plt.ylabel("Frecuencia")
+        plt.tight_layout()
+        plt.show()
 
-        clean_texts.extend((q, ctx))               # [q1, ctx1, q2, ctx2, ...]
-        contrastive_triples.append((q, ctx, neg))
+    neg_chunks: List[str] = []
+    rng = random.Random(42)
+    for doc_id, pos in enumerate(pos_chunks):
+        while True:
+            cand_id = rng.randrange(len(chunks))
+            if chunk_index.loc[cand_id, "doc_id"] != doc_id:
+                cand_chunk = chunks[cand_id]
+                if _jaccard_sim(pos, cand_chunk) < 0.1:
+                    neg_chunks.append(cand_chunk)
+                    break
 
-    print(f"[INFO] Contrastive triples generated: {len(contrastive_triples):,}")
-
-    # ------------------------------------------------------------------ #
-    #  3. Embeddings SBERT (una sola llamada)                            #
-    # ------------------------------------------------------------------ #
-    print("[INFO] Fetching / caching SBERT embeddings …")
-    cache_dir  = os.path.join(output_dir, "sbert_cache")
+    print("[INFO] Encoding SBERT embeddings …")
+    print(f"[INFO] Codificando queries + positivos: {len(clean_texts)//2} pares.")
+    cache_dir = Path(output_dir, "sbert_cache")
     target_emb = ensure_sbert_cache(
         clean_texts,
         model_name=base_model_name,
-        cache_dir=cache_dir,
+        cache_dir=str(cache_dir),
         batch_size=64,
-    )  # shape [2·N, D]
+    )
 
-    # desinterlevar: pares (q, ctx) -> índices pares / impares
-    q_emb_pos = target_emb[0::2]   # consultas
-    p_emb_pos = target_emb[1::2]   # contextos positivos
+    q_emb = target_emb[0::2]
+    p_emb = target_emb[1::2]
 
-    # ------------------------------------------------------------------ #
-    #  4. Guardar VAE / DAE                                              #
-    # ------------------------------------------------------------------ #
-    if force or not os.path.exists(vae_path):
+    print(f"[INFO] Codificando negativos: {len(neg_chunks)} chunks.")
+    n_emb = ensure_sbert_cache(
+        neg_chunks,
+        model_name=base_model_name,
+        cache_dir=str(cache_dir),
+        batch_size=64,
+    )
+
+    if force or not vae_path.exists():
         torch.save({"input": target_emb, "target": target_emb.clone()}, vae_path)
         print(f"[OK]  VAE embeddings   → {vae_path}")
 
-    if force or not os.path.exists(dae_path):
-        input_emb = target_emb + torch.randn_like(target_emb) * noise_std
-        torch.save({"input": input_emb, "target": target_emb}, dae_path)
+    if force or not dae_path.exists():
+        noisy = target_emb + torch.randn_like(target_emb) * noise_std
+        torch.save({"input": noisy, "target": target_emb}, dae_path)
         print(f"[OK]  DAE embeddings   → {dae_path}")
 
-    # ------------------------------------------------------------------ #
-    #  5. Guardar tripletas contrastivas                                 #
-    # ------------------------------------------------------------------ #
-    if force or not os.path.exists(contrastive_path):
-        print("[INFO] Encoding negatives and saving triplets …")
-        # solo los negativos requieren consulta a la caché (puede existir)
-        ns = [neg for _, _, neg in contrastive_triples]
-        n_emb = ensure_sbert_cache(ns, model_name=base_model_name, cache_dir=cache_dir)
+    if force or not con_path.exists():
+        torch.save({"query": q_emb, "positive": p_emb, "negative": n_emb}, con_path)
+        print(f"[OK]  Contrastive embeddings → {con_path}")
 
-        torch.save(
-            {
-                "query":     q_emb_pos,
-                "positive":  p_emb_pos,
-                "negative":  n_emb,
-            },
-            contrastive_path,
-        )
-        print(f"[OK]  Contrastive embeddings → {contrastive_path}")
-
-    print("[DONE] SQuAD preprocessing finished.")
+    print("[DONE] SQuAD preprocessing finished (chunk‑level).")
 
 
 
-def _prepare_uda(cfg: dict) -> Dict[str, str]:
+def _prepare_uda(cfg: dict) -> Dict[str, str]: # NOT IN USE
     common = dict(
         output_dir="./data/UDA",
         max_samples=cfg["data"].get("max_samples"),
@@ -3437,7 +4519,7 @@ Example
 
 python -m utils.visualization_exp \
   --sbert-cache data/SQUAD/sbert_cache/sbert_2254a38d6b_all-MiniLM-L6-v2.pt \
-  --checkpoint  models/checkpoints/contrastive_ae.pth \
+  --checkpoint  models/checkpoints/coe_text.pth \
   --projection  tsne \
   --components  2 \
   --sample-size 1200 \
