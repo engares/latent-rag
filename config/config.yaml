@@ -41,7 +41,7 @@ models:
 data:
   dataset: "squad"            #  "uda"  |  "squad"
   version: "v1"          #  v1, v2  ONly for squad
-  max_samples:         #  optional, blankk to use all samples
+  max_samples: 2000        #  optional, blankk to use all samples
   include_unanswerable: false   #  Only Squad v2 has this option
 
 training:
@@ -53,9 +53,12 @@ training:
   deterministic: false      # (true = modo debug)
 
 retrieval:
-  similarity_metric: "cosine"   # cosine, mahalanobis
-  top_k: 20
-  compress_embeddings: true 
+  backend: faiss          # 'faiss' | 'bruteforce'
+  index_type: flatip        # flatip | hnsw | ivfpq
+  index_path: ./data/index/faiss_chunks.faiss
+  use_gpu: true
+  top_k: 10
+  max_chunks_per_doc: 3   # (como se definió en el roadmap de chunking)
 
 generation:
   provider: "openai"       # Just OpenAI by now
@@ -64,9 +67,18 @@ generation:
   max_tokens: 256
   system_prompt_path: "./config/prompts/system_prompt.txt"
 
+chunking:
+  enabled: false
+  mode: semantic        # "sliding" | "semantic"
+  max_tokens: 128
+  stride: 64
+  min_tokens: 48        # solo para 'semantic'
+  tokenizer_name: sentence-transformers/all-MiniLM-L6-v2
+  index_out: "./data/SQUAD/chunk_index_infer.parquet"
+  store_chunk_text: true
 
 evaluation:
-  retrieval_metrics: ["Recall@5", "MRR@10", "nDCG@10"] # You can change the k top  simply by changing the @k e.j Recall@10, "MRR@20"
+  retrieval_metrics: ["Recall@10", "MRR@10", "nDCG@10"] # You can change the k top  simply by changing the @k e.j Recall@10, "MRR@20"
   generation_metrics: ["ROUGE-L", "BLEU"]
 
 logging:

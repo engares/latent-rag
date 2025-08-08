@@ -13,11 +13,16 @@ from torch.utils.data import Subset
 from pathlib import Path
 from hashlib import sha1
 
+import pandas as pd
 
 from utils.chunk_utils import (
-    build_chunked_corpus,
-    save_chunk_index,
+    sliding_window_chunker,
+    semantic_window_chunker,
 )
+
+
+import pandas as pd
+from utils.chunk_utils import build_inference_corpus, save_chunk_index
 
 ###############################################################################
 # SBERT caching                                                               #
@@ -88,6 +93,72 @@ def _texts_fingerprint(texts: List[str]) -> str:
     for t in texts:
         h.update(t.encode("utf-8"))
     return h.hexdigest()[:10]                # 40 bits bastan para colisiones muy raras
+
+def prepare_inference_chunks(
+    docs: Sequence[str],
+    *,
+    mode: str = "sliding",                     # "sliding" | "semantic"
+    max_tokens: int = 128,
+    stride: int = 64,
+    min_tokens: int = 48,                      # solo usado en semantic
+    tokenizer_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    index_out: str | None = None,              # parquet opcional
+    store_chunk_text: bool = True,
+) -> Tuple[List[str], pd.DataFrame]:
+    """Chunk the given documents for test/inference and (optionally) persist an index.
+
+    Returns:
+        chunks: list[str] with chunk texts in corpus order.
+        index : DataFrame indexed by chunk_id with:
+                ['doc_id','tok_start','tok_end','char_start','char_end', 'chunk_text?'].
+    """
+    chunks: List[str] = []
+    records: List[Dict] = []
+
+    chunker = sliding_window_chunker if mode == "sliding" else semantic_window_chunker
+
+    for doc_id, text in enumerate(docs):
+        if not text:
+            continue
+        recs = (
+            chunker(
+                text,
+                max_tokens=max_tokens,
+                stride=stride,
+                tokenizer_name=tokenizer_name,
+            )
+            if mode == "sliding"
+            else semantic_window_chunker(
+                text,
+                max_tokens=max_tokens,
+                stride=stride,
+                min_tokens=min_tokens,
+                tokenizer_name=tokenizer_name,
+            )
+        )
+        for r in recs:
+            cid = len(chunks)
+            chunks.append(r.text)
+            row = {
+                "chunk_id": cid,
+                "doc_id": doc_id,
+                "tok_start": r.tok_start,
+                "tok_end": r.tok_end,
+                "char_start": r.char_start,
+                "char_end": r.char_end,
+            }
+            if store_chunk_text:
+                row["chunk_text"] = r.text
+            records.append(row)
+
+    index = pd.DataFrame.from_records(records).set_index("chunk_id")
+
+    if index_out:
+        outp = Path(index_out)
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        index.to_parquet(outp)
+
+    return chunks, index
 
 
 def ensure_sbert_cache(
