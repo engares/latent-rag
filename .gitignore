@@ -12,3 +12,5 @@ __pycache__/
 *.png
 
 *.faiss
+*.json
+*.csv

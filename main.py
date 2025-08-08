@@ -42,18 +42,8 @@ import csv
 import json
 from datetime import datetime
 
-from retrieval.common import StatsTracker 
+from retrieval.common import StatsTracker
 
-def _bool(x: Any) -> bool:
-    """Convert a value to boolean, treating None as False.
-
-    Args:
-        x: Input value.
-
-    Returns:
-        Boolean representation of the input.
-    """
-    return bool(x) if x is not None else False
 
 def _print_run_card(cfg: Dict[str, Any], ae_type: str, *, generate: bool) -> None:
     """Print a summary of the experiment configuration.
@@ -69,7 +59,7 @@ def _print_run_card(cfg: Dict[str, Any], ae_type: str, *, generate: bool) -> Non
     embm = cfg.get("embedding_model", {})
     gen = cfg.get("generation", {})
 
-    use_chunking = _bool(ch.get("enabled"))
+    use_chunking = bool(ch.get("enabled"))
     top_k = int(retr.get("top_k", 10))
     cand_k = int(retr.get("candidate_k", top_k * 3 if use_chunking else top_k))
 
@@ -79,7 +69,7 @@ def _print_run_card(cfg: Dict[str, Any], ae_type: str, *, generate: bool) -> Non
         f"  Embedding: {embm.get('name', '?')} (max_length={embm.get('max_length', '?')})",
         f"  Autoencoder: {ae_type}",
         f"  Retrieval: backend={retr.get('backend', 'faiss')} index_type={retr.get('index_type', 'hnsw')} "
-        f"use_gpu={_bool(retr.get('use_gpu'))} top_k={top_k} candidate_k={cand_k} max_chunks_per_doc={retr.get('max_chunks_per_doc', 2)}",
+        f"use_gpu={bool(retr.get('use_gpu'))} top_k={top_k} candidate_k={cand_k} max_chunks_per_doc={retr.get('max_chunks_per_doc', 2)}",
         (
             f"  Chunking: enabled={use_chunking} mode={ch.get('mode', 'sliding')} "
             f"max_tokens={ch.get('max_tokens', 128)} stride={ch.get('stride', 64)} "
@@ -159,26 +149,6 @@ def _load_autoencoder(
 # Pipeline steps
 # ---------------------------------------------------------------------------
 
-def _encode_corpus(
-    compressor: EmbeddingCompressor,
-    texts: Sequence[str],
-    compress: bool = True,
-) -> torch.Tensor:
-    """Return document embeddings as `[N × D]` float32 CPU tensor."""
-
-    return compressor.encode_text(list(texts), compress=compress)
-
-
-def _evaluate_retrieval(
-    retrieved: Sequence[Sequence[str]],
-    relevant: Sequence[Sequence[str]] | Sequence[str],
-    metrics: List[str],
-) -> Dict[str, Dict[str, float]]:
-    """Wrapper around `evaluate_retrieval` with sensible defaults."""
-
-    return evaluate_retrieval(retrieved, relevant, metrics=metrics)
-
-
 def _safe_dim_from_tensor(x: torch.Tensor) -> int:
     """Devuelve la segunda dimensión de un tensor [N, D]; si no cumple, intenta inferir."""
     if isinstance(x, torch.Tensor) and x.ndim == 2:
@@ -223,27 +193,6 @@ class PipelineRunner:
 
         # Generator
         self.generator = RAGGenerator(cfg)
-
-    # ------------------------------------------------------------------ #
-    def _build_retriever(
-        self,
-        doc_embeddings: torch.Tensor,
-        corpus: Sequence[str],
-        doc_ids: Sequence[int],
-    ):
-        """Initialise retrieval backend (FAISS / BruteForce)."""
-        t0 = time.perf_counter()
-        self.retriever = build_retriever(
-            embeddings=doc_embeddings,
-            texts=corpus,
-            doc_ids=doc_ids,
-            cfg=self.retr_cfg,
-        )
-        self.logger.main.info(
-            "Retriever backend '%s' initialised in %.2f s",
-            self.retr_cfg.get("backend", "faiss"),
-            time.perf_counter() - t0,
-        )
 
     # ------------------------------------------------------------------ #
     def process(
@@ -292,13 +241,24 @@ class PipelineRunner:
             corpus_doc_ids = list(range(len(corpus)))
 
         # Encode corpus once
-        doc_embeddings = _encode_corpus(self.compressor, corpus, compress=True)
+        doc_embeddings = self.compressor.encode_text(list(corpus), compress=True)
 
         # Build or load retrieval index
-        self._build_retriever(doc_embeddings, corpus, corpus_doc_ids)
+        t0 = time.perf_counter()
+        self.retriever = build_retriever(
+            embeddings=doc_embeddings,
+            texts=corpus,
+            doc_ids=corpus_doc_ids,
+            cfg=self.retr_cfg,
+        )
+        self.logger.main.info(
+            "Retriever backend '%s' initialised in %.2f s",
+            self.retr_cfg.get("backend", "faiss"),
+            time.perf_counter() - t0,
+        )
 
         # Encode queries
-        query_embeddings = _encode_corpus(self.compressor, queries, compress=True)
+        query_embeddings = self.compressor.encode_text(list(queries), compress=True)
 
         # Retrieve with doc-level MaxSim aggregation
         top_k = int(self.retr_cfg.get("top_k", 10))
@@ -338,6 +298,7 @@ class PipelineRunner:
                 self.logger.main.debug("[%d] Q: %s | A: %s", idx, q, (ans[:60] + "…") if ans else "")
 
         # Evaluation (doc-level, using doc_ids)
+        ret_metrics = {}
         if relevant_docs:
             relevant_doc_ids: List[List[int]] = []
             missing = 0
@@ -357,7 +318,7 @@ class PipelineRunner:
             relevant_as_str = [[str(did) for did in row] for row in relevant_doc_ids]
 
             eval_cfg = self.cfg.get("evaluation", {})
-            ret_metrics = _evaluate_retrieval(
+            ret_metrics = evaluate_retrieval(
                 retrieved_as_str,
                 relevant_as_str,
                 metrics=eval_cfg.get("retrieval_metrics", ["Recall@5"]),
@@ -377,24 +338,15 @@ class PipelineRunner:
             for m, d in gen_metrics.items():
                 rprint(f"{m}: {d['mean']:.2f} (CI 95%: {d['ci_lower']:.2f}–{d['ci_upper']:.2f})")
 
-        # Evaluation (doc-level, using doc_ids)
-        ret_metrics = {}
-        if relevant_docs:
-            ...
-            ret_metrics = _evaluate_retrieval(
-                retrieved_as_str,
-                relevant_as_str,
-                metrics=eval_cfg.get("retrieval_metrics", ["Recall@5"]),
-            )
-
-
         # --- NEW: devolver paquete de resultados + estadísticas del retriever
         retr_stats = {}
         if hasattr(self.retriever, "get_stats"):
             retr_stats = self.retriever.get_stats(reset=False)
 
         # dim_out lo inferimos del embedding del corpus; dim_in del config/model
-        dim_out = int(_safe_dim_from_tensor(doc_embeddings))  # NEW helper (abajo)
+        if not (isinstance(doc_embeddings, torch.Tensor) and doc_embeddings.ndim == 2):
+            raise ValueError("Expected a 2D tensor [N, D] to infer embedding dimension.")
+        dim_out = int(doc_embeddings.size(1))
         dim_in  = int(self.compressor.input_dim if hasattr(self.compressor, "input_dim")
                       else self.cfg.get("embedding_model", {}).get("dim", dim_out))
         n_corpus = int(len(corpus))

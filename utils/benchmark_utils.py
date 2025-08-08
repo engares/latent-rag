@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os, json
 from datetime import datetime
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence, List
 import numpy as np
 import csv
 
@@ -47,6 +47,7 @@ def build_metrics_row(
     embm = cfg.get("embedding_model", {})
     data = cfg.get("data", {})
 
+    # Create the row dictionary directly with optimized logic
     row = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "tag": getattr(args, "benchmark_tag", None),

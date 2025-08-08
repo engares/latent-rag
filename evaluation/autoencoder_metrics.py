@@ -1,7 +1,7 @@
 # evaluation/autoencoder_metrics.py
 
-import torch
 from __future__ import annotations
+import torch
 import os
 from typing import Dict
 
