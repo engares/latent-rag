@@ -8,8 +8,8 @@ compressed codes).  Works with the three AE checkpoints in the repo
 Example
 
 python -m utils.visualization_exp \
-  --sbert-cache data/SQUAD/sbert_cache/sbert_8b49db0d09_all-MiniLM-L6-v2.pt \
-  --checkpoint  models/checkpoints/coe_text.pth \
+  --sbert-cache data/SQUAD/sbert_cache/sbert_8ebee4d368_all-MiniLM-L6-v2.pt \
+  --checkpoint  models/checkpoints/cae_text.pth \
   --projection  tsne \
   --components  2 \
   --sample-size 1200 \

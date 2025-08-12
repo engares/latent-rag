@@ -199,7 +199,7 @@ class FAISSEmbeddingRetriever:
         latent_dim: Optional[int] = None,
         chunking_cfg: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """Build (or rebuild) the FAISS index and attach metadata."""
+        """Build (or rebuild) the FAISS index and attach metadata (reemplazo forzado)."""
         assert len(embeddings) == len(texts), "len mismatch (embeddings vs texts)"
         if doc_ids is not None:
             assert len(texts) == len(doc_ids), "len mismatch (texts vs doc_ids)"
@@ -220,48 +220,42 @@ class FAISSEmbeddingRetriever:
             version=1,
         )
 
-        # 3) Validate on-disk index; if incompatible → rebuild
-        rebuild = False
-        if hasattr(self.index, "d") and int(getattr(self.index, "d")) != cur_fp["d"]:
-            rebuild = True
-        if (self.path and self.path.exists()) and (not self._compatible(cur_fp)):
-            rebuild = True
+        # 3) REEMPLAZO FORZADO: ignorar cualquier índice previo (evita append silencioso)
+        if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
+            try:
+                self.index = faiss.index_gpu_to_cpu(self.index)
+                self.gpu_enabled = False
+            except Exception:
+                pass
 
-        if rebuild:
-            # Back to CPU if currently on GPU
-            if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
-                try:
-                    self.index = faiss.index_gpu_to_cpu(self.index)
-                    self.gpu_enabled = False
-                except Exception:
-                    pass
-            # Fresh index
-            self.index = self._build_index(cur_fp["d"], self.index_type)
-            self._texts, self._doc_ids, self.meta_fp = [], [], {}
-            self._maybe_set_hnsw_params(self.index)
-            # Back to GPU if needed
-            if self.use_gpu and hasattr(faiss, "StandardGpuResources"):
-                try:
-                    if faiss.get_num_gpus() > 0:
-                        res = faiss.StandardGpuResources()
-                        self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
-                        self.gpu_enabled = True
-                except Exception:
-                    self.gpu_enabled = False
+        self.index = self._build_index(cur_fp["d"], self.index_type)
+        self._maybe_set_hnsw_params(self.index)
+
+        # Limpiar metadatos en memoria y fingerprint (se reescribirán más abajo)
+        self._texts, self._doc_ids, self.meta_fp = [], [], {}
+
+        if self.use_gpu and hasattr(faiss, "StandardGpuResources"):
+            try:
+                if faiss.get_num_gpus() > 0:
+                    res = faiss.StandardGpuResources()
+                    self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+                    self.gpu_enabled = True
+            except Exception:
+                self.gpu_enabled = False
 
         # 4) Train (if applicable) and add vectors (measure build time)
         t0 = time.perf_counter()
-        if hasattr(self.index, "train") and not self.index.is_trained:
+        if hasattr(self.index, "train") and not self.index.is_trained and train:
             self.index.train(x)
         self.index.add(x)
         self._stats.add_build_time(time.perf_counter() - t0)
 
-        # 5) Minimal sanity check: self-search for the first vector
+        # 5) Sanity check por similitud (≈1.0 tras L2+IP)
         try:
             D_chk, I_chk = self.index.search(x[:1], 1)
-            if I_chk.shape[0] == 0 or I_chk[0, 0] != 0:
-                print("[ERROR] FAISS sanity check failed; rebuilding index")
-                # Rebuild and re-add (count time again)
+            ok = (I_chk.shape[0] > 0) and np.isfinite(D_chk[0, 0]) and (D_chk[0, 0] >= 0.99)
+            if not ok:
+                # Reconstrucción limpia (caso raro)
                 if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
                     try:
                         self.index = faiss.index_gpu_to_cpu(self.index)
@@ -271,12 +265,12 @@ class FAISSEmbeddingRetriever:
                 self.index = self._build_index(cur_fp["d"], self.index_type)
                 self._maybe_set_hnsw_params(self.index)
                 t0 = time.perf_counter()
-                if hasattr(self.index, "train") and not self.index.is_trained:
+                if hasattr(self.index, "train") and not self.index.is_trained and train:
                     self.index.train(x)
                 self.index.add(x)
                 self._stats.add_build_time(time.perf_counter() - t0)
         except Exception:
-            # If sanity check fails, force rebuild
+            # Fallback: fuerza reconstrucción limpia
             if getattr(self, "gpu_enabled", False) and hasattr(faiss, "index_gpu_to_cpu"):
                 try:
                     self.index = faiss.index_gpu_to_cpu(self.index)
@@ -286,29 +280,36 @@ class FAISSEmbeddingRetriever:
             self.index = self._build_index(cur_fp["d"], self.index_type)
             self._maybe_set_hnsw_params(self.index)
             t0 = time.perf_counter()
-            if hasattr(self.index, "train") and not self.index.is_trained:
+            if hasattr(self.index, "train") and not self.index.is_trained and train:
                 self.index.train(x)
             self.index.add(x)
             self._stats.add_build_time(time.perf_counter() - t0)
 
-        # 6) In-memory metadata
-        self._texts.extend(list(texts))
-        self._doc_ids.extend(list(doc_ids) if doc_ids is not None else [-1] * len(texts))
+        # 6) Metadatos en memoria (asignación, no extend)
+        self._texts  = list(texts)
+        self._doc_ids = list(doc_ids) if doc_ids is not None else [-1] * len(texts)
         self.meta_fp = cur_fp
 
-        # 7) Persist to disk (CPU copy)
+        # 7) Invariante crítico antes de persistir
+        ntotal = int(getattr(self.index, "ntotal", -1))
+        if not (ntotal == len(self._texts) == len(self._doc_ids)):
+            raise RuntimeError(
+                f"FAISS/metadata misalignment: ntotal={ntotal} texts={len(self._texts)} doc_ids={len(self._doc_ids)}"
+            )
+
+        # 8) Persist to disk (CPU copy) — se sobreescribe el índice anterior
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             cpu_index = self._index_to_cpu()
             faiss.write_index(cpu_index, str(self.path))
             self._save_metadata()
 
-        # 8) Brief log
+        # 9) Log
         try:
-            ntotal = getattr(self.index, "ntotal", -1)
             print(f"[FAISS] type={type(self.index).__name__} d={cur_fp['d']} ntotal={ntotal} metric=IP normL2=True")
         except Exception:
             pass
+
 
     # ------------------------------ Search API ----------------------------- #
     def search(self, queries: torch.Tensor, k: int) -> Tuple[np.ndarray, np.ndarray]:

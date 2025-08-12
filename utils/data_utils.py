@@ -18,11 +18,10 @@ import pandas as pd
 from utils.chunk_utils import (
     sliding_window_chunker,
     semantic_window_chunker,
+    build_chunked_corpus,
+    save_chunk_index,
 )
-
-
-import pandas as pd
-from utils.chunk_utils import build_inference_corpus, save_chunk_index
+from functools import lru_cache
 
 ###############################################################################
 # SBERT caching                                                               #
@@ -36,13 +35,21 @@ def _compute_embeddings(
     texts: Sequence[str],
     model: SentenceTransformer,
     batch_size: int = 64,
+    device: str | None = None,
 ) -> torch.Tensor:
     """Return CLS embeddings as a `[N × D]` *float32* CPU tensor."""
+    if device:
+        model.to(device)
     acc: List[torch.Tensor] = []
-    for i in tqdm(range(0, len(texts), batch_size), desc="Embedding"):
+    for i in tqdm(range(0, len(texts), batch_size), desc="Embedding", leave=False):
         batch = texts[i : i + batch_size]
         with torch.no_grad():
-            emb = model.encode(batch, convert_to_numpy=True, show_progress_bar=False)
+            emb = model.encode(
+                batch,
+                batch_size=len(batch),  # model handles internally; len(batch) ok
+                convert_to_numpy=True,
+                show_progress_bar=False,
+            )
             acc.append(torch.from_numpy(emb))
     return torch.cat(acc).float()
 
@@ -54,15 +61,40 @@ def _texts_fingerprint(texts: Sequence[str]) -> str:
     return h.hexdigest()[:10]
 
 
+@lru_cache(maxsize=4)
+def _load_sbert(model_name: str) -> SentenceTransformer:
+    return SentenceTransformer(model_name)
+
+
 def ensure_sbert_cache(
     texts: Sequence[str],
     *,
-    model_name: str,
+    model_name: str | None = None,
+    model: SentenceTransformer | None = None,
     cache_dir: str = "./data/SBERT",
     batch_size: int = 64,
     force: bool = False,
+    device: str | None = None,
 ) -> torch.Tensor:
+    """Compute (or reuse) SBERT embeddings and persist them to disk.
+
+    Optimization notes:
+    - Allows injecting a preloaded model to avoid re-instantiation cost.
+    - Model objects cached via LRU if only model_name provided.
+    - Device auto-selected if not specified.
+    - Idempotent via content fingerprint.
+    """
     os.makedirs(cache_dir, exist_ok=True)
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    if model is None:
+        assert model_name is not None, "Provide model_name if model not supplied"
+        model = _load_sbert(model_name)
+    else:
+        if model_name is None:
+            model_name = model.__class__.__name__
+
     fp = _texts_fingerprint(texts)
     tag = model_name.split("/")[-1]
     path = os.path.join(cache_dir, f"sbert_{fp}_{tag}.pt")
@@ -71,8 +103,7 @@ def ensure_sbert_cache(
         return torch.load(path, map_location="cpu")
 
     print(f"[INFO] SBERT cache miss → encoding {len(texts):,} texts …")
-    model = SentenceTransformer(model_name)
-    emb = _compute_embeddings(texts, model, batch_size=batch_size)
+    emb = _compute_embeddings(texts, model, batch_size=batch_size, device=device)
     torch.save(emb, path)
     print(f"[OK]  SBERT embeddings saved → {path}")
     return emb
@@ -83,16 +114,6 @@ def _jaccard_sim(a: str, b: str) -> float:
     inter = a_set & b_set
     union = a_set | b_set
     return len(inter) / len(union) if union else 0.0
-
-def _texts_fingerprint(texts: List[str]) -> str:
-    """
-    Devuelve un hash abreviado (10 hex) de la secuencia de textos.
-    El orden de los textos importa, así garantizamos reproducibilidad.
-    """
-    h = sha1()
-    for t in texts:
-        h.update(t.encode("utf-8"))
-    return h.hexdigest()[:10]                # 40 bits bastan para colisiones muy raras
 
 def prepare_inference_chunks(
     docs: Sequence[str],
@@ -160,46 +181,6 @@ def prepare_inference_chunks(
 
     return chunks, index
 
-
-def ensure_sbert_cache(
-    texts: List[str],
-    *,
-    model_name: str,
-    cache_dir: str = "./data/SBERT",
-    batch_size: int = 64,
-    force: bool = False,
-) -> torch.Tensor:
-    """
-    Calcula (o reutiliza) los embeddings de SBERT y los persiste en disco.
-
-    Args
-    ----
-    texts       : Lista de cadenas a codificar.
-    model_name  : Identificador HuggingFace / Sentence-Transformers del modelo.
-    cache_dir   : Carpeta donde almacenar los .pt (creada si no existe).
-    batch_size  : Tamaño de lote para _compute_embeddings.
-    force       : Si True, rehace el cálculo aunque exista el fichero.
-
-    Returns
-    -------
-    Tensor CPU float32 de dimensión [N × D].
-    """
-    os.makedirs(cache_dir, exist_ok=True)
-
-    fp        = _texts_fingerprint(texts)
-    model_tag = model_name.split("/")[-1]
-    fname     = f"sbert_{fp}_{model_tag}.pt"
-    path      = os.path.join(cache_dir, fname)
-
-    if not force and os.path.exists(path):
-        return torch.load(path, map_location="cpu")
-
-    print(f"[INFO] SBERT cache miss → codificando {len(texts):,} textos …")
-    st_model  = SentenceTransformer(model_name)
-    emb       = _compute_embeddings(texts, st_model, batch_size=batch_size)
-    torch.save(emb, path)
-    print(f"[OK]  SBERT embeddings guardados → {path}")
-    return emb
 
 def ensure_uda_data( # EN DESUSO
     *,
@@ -350,7 +331,8 @@ def ensure_squad_data(
     print(f"[OK]  Chunk index saved → {idx_path}")
 
     # Preindexar: {doc_id → [chunk_id con respuesta]}
-    doc_chunks: Dict[int, List[int]] = defaultdict(list)
+    from collections import defaultdict as _dd
+    doc_chunks: Dict[int, List[int]] = _dd(list)
     for cid, row in chunk_index.iterrows():
         if row["contains_answer"]:
             doc_chunks[row["doc_id"]].append(cid)
@@ -394,8 +376,11 @@ def ensure_squad_data(
     print("[INFO] Encoding SBERT embeddings …")
     print(f"[INFO] Codificando queries + positivos: {len(clean_texts)//2} pares.")
     cache_dir = Path(output_dir, "sbert_cache")
+    # Reuse single in-memory model for all encodings
+    st_model = _load_sbert(base_model_name)
     target_emb = ensure_sbert_cache(
         clean_texts,
+        model=st_model,
         model_name=base_model_name,
         cache_dir=str(cache_dir),
         batch_size=64,
@@ -407,6 +392,7 @@ def ensure_squad_data(
     print(f"[INFO] Codificando negativos: {len(neg_chunks)} chunks.")
     n_emb = ensure_sbert_cache(
         neg_chunks,
+        model=st_model,
         model_name=base_model_name,
         cache_dir=str(cache_dir),
         batch_size=64,
@@ -426,7 +412,6 @@ def ensure_squad_data(
         print(f"[OK]  Contrastive embeddings → {con_path}")
 
     print("[DONE] SQuAD preprocessing finished (chunk‑level).")
-
 
 
 def _prepare_uda(cfg: dict) -> Dict[str, str]: # NOT IN USE

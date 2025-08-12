@@ -76,6 +76,8 @@ OPENAI_API_KEY=your_api_key_here
 * Autoencoder parameters and checkpoints
 * Training hyperparameters (batch size, epochs, LR)
 * Retrieval & generation options
+* Chunking configuration (sliding or semantic modes, token limits, stride, optional storage of chunk text)
+* FAISS retrieval backend options (index type, GPU usage, persistence, top-k, chunk aggregation)
 * Evaluation metrics
 * Logging level and file
 
@@ -94,6 +96,10 @@ This creates:
 * `data/SQUAD/squad_vae_embeddings.pt`
 * `data/SQUAD/squad_dae_embeddings.pt`
 * `data/SQUAD/squad_contrastive_embeddings.pt`
+
+During retrieval, if `chunking.enabled=true`, the retriever splits contexts into overlapping or semantic chunks (optionally storing chunk text) and aggregates chunk scores back to documents. Index metadata can be written to `chunking.index_out` when configured.
+
+During retrieval, if `retrieval.backend=faiss`, the retriever builds or loads a FAISS index using the chosen type (`flatip`, `hnsw`, or `ivfpq`), optionally on GPU, and persists it to `retrieval.index_path`.
 
 ## Training
 
@@ -143,7 +149,7 @@ python main.py --config config/config.yaml --ae_type vae
 Replace `--ae_type` with `dae`, `contrastive`, `all` or `none`. The pipeline will:
 
 1. Encode corpus and queries
-2. Retrieve top‑k documents
+2. Retrieve top‑k documents (optionally chunking contexts and/or using FAISS per config)
 3. Optionally generate answers via GPT-4o-mini (if `--generate` is specified)
 4. Evaluate retrieval and generation metrics
 
@@ -158,16 +164,6 @@ python main.py --config config/config.yaml --ae_type vae --generate
 * Retrieval metrics: per-query and aggregated Recall\@k, MRR, nDCG.
 * Generation metrics: BLEU, ROUGE-L, METEOR with 95% bootstrap CIs.
 * Visualise embeddings via **`evaluation/autoencoder_metrics.py`** (t-SNE plots).
-
-Commands:
-
-```python
-from evaluation.retrieval_metrics import evaluate_retrieval
-from evaluation.generation_metrics import evaluate_generation_bootstrap
-```
-
-
-Perfecto. Aquí tienes un nuevo apartado **[9. Embedding Visualisation](#embedding-visualisation)** para añadir en tu `README.md`, totalmente integrado con el estilo del proyecto y basado en los módulos que ya has implementado:
 
 
 ### Experimental Embedding Visualisation
@@ -234,5 +230,4 @@ Run all tests via pytest:
 PYTHONPATH=. pytest -q
 ```
 
-Coverage threshold: 80% (unit tests for data processing, models, retrieval, evaluation, training scripts).
 

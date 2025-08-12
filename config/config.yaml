@@ -36,7 +36,7 @@ models:
     latent_dim: 64
     hidden_dim: 512
     dataset_file: "squad_cae_embeddings.pt"
-    checkpoint: "coe_text.pth"
+    checkpoint: "cae_text.pth"
 
 data:
   dataset: "squad"            #  "uda"  |  "squad"
