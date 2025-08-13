@@ -1093,3 +1093,38 @@ Training VAE | device=cuda | deterministic=False
 2025-08-12 13:10:50,211 [INFO] RAGGenerator: OpenAI API key loaded successfully.
 2025-08-12 13:10:50,211 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
 2025-08-12 13:10:50,758 [INFO] main: Retriever backend 'faiss' initialised in 0.00 s
+2025-08-12 14:20:06,807 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-12 14:20:47,358 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-12 14:20:54,971 [INFO] sentence_transformers.SentenceTransformer: Use pytorch device_name: cuda:0
+2025-08-12 14:20:54,971 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-12 14:21:01,916 [INFO] train: CAE | device=cuda | hard_negatives=True | margin=0.200
+2025-08-12 14:21:04,808 [INFO] train: [Epoch 01/50] train=0.058703 | val=0.052021
+2025-08-12 14:21:04,822 [INFO] train: New best val_loss: 0.052021 → checkpoint ./models/checkpoints/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50.pth
+2025-08-12 14:21:07,123 [INFO] train: [Epoch 02/50] train=0.045776 | val=0.049932
+2025-08-12 14:21:07,126 [INFO] train: New best val_loss: 0.049932 → checkpoint ./models/checkpoints/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50.pth
+2025-08-12 14:21:09,411 [INFO] train: [Epoch 03/50] train=0.042671 | val=0.047904
+2025-08-12 14:21:09,424 [INFO] train: New best val_loss: 0.047904 → checkpoint ./models/checkpoints/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50.pth
+2025-08-12 14:21:11,683 [INFO] train: [Epoch 04/50] train=0.040678 | val=0.047025
+2025-08-12 14:21:11,686 [INFO] train: New best val_loss: 0.047025 → checkpoint ./models/checkpoints/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50.pth
+2025-08-12 14:21:13,965 [INFO] train: [Epoch 05/50] train=0.039313 | val=0.047323
+2025-08-12 14:21:16,253 [INFO] train: [Epoch 06/50] train=0.038581 | val=0.046987
+2025-08-12 14:21:18,829 [INFO] train: [Epoch 07/50] train=0.038143 | val=0.046671
+2025-08-12 14:21:18,832 [INFO] train: New best val_loss: 0.046671 → checkpoint ./models/checkpoints/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50.pth
+2025-08-12 14:21:21,544 [INFO] train: [Epoch 08/50] train=0.037166 | val=0.047581
+2025-08-12 14:21:24,457 [INFO] train: [Epoch 09/50] train=0.036984 | val=0.047357
+2025-08-12 14:21:27,382 [INFO] train: [Epoch 10/50] train=0.036352 | val=0.047664
+2025-08-12 14:21:30,287 [INFO] train: [Epoch 11/50] train=0.031241 | val=0.043730
+2025-08-12 14:21:30,290 [INFO] train: New best val_loss: 0.043730 → checkpoint ./models/checkpoints/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50.pth
+2025-08-12 14:21:33,230 [INFO] train: [Epoch 12/50] train=0.029427 | val=0.044160
+2025-08-12 14:21:35,699 [INFO] train: [Epoch 13/50] train=0.028944 | val=0.044570
+2025-08-12 14:21:38,272 [INFO] train: [Epoch 14/50] train=0.028471 | val=0.044953
+2025-08-12 14:21:40,684 [INFO] train: [Epoch 15/50] train=0.024634 | val=0.042987
+2025-08-12 14:21:40,687 [INFO] train: New best val_loss: 0.042987 → checkpoint ./models/checkpoints/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50.pth
+2025-08-12 14:21:43,242 [INFO] train: [Epoch 16/50] train=0.022961 | val=0.043493
+2025-08-12 14:21:45,798 [INFO] train: [Epoch 17/50] train=0.022639 | val=0.043507
+2025-08-12 14:21:48,697 [INFO] train: [Epoch 18/50] train=0.021641 | val=0.044199
+2025-08-12 14:21:51,611 [INFO] train: [Epoch 19/50] train=0.019501 | val=0.043446
+2025-08-12 14:21:54,544 [INFO] train: [Epoch 20/50] train=0.018591 | val=0.043357
+2025-08-12 14:21:54,545 [INFO] train: [EARLY STOP] No improvement in validation.
+2025-08-12 14:21:54,545 [INFO] main: [DONE] Best val_loss = 0.042987
+2025-08-12 14:21:54,545 [INFO] main: 

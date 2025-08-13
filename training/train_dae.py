@@ -143,9 +143,21 @@ if __name__ == "__main__":
     dataset_path = prepare_datasets(cfg, variant="dae", dataset_override=args.dataset)
 
     # ------------- model save path --------------
+    ckpt_name = (
+        f"cae"
+        f"_in{model_cfg.get('input_dim', 384)}"
+        f"_lat{model_cfg.get('latent_dim', 64)}"
+        f"_hid{model_cfg.get('hidden_dim', 512)}"
+        f"_margin{args.margin:.2f}"
+        f"_hn{int(not args.no_hard_negatives)}"
+        f"_bs{args.batch_size or train_cfg.get('batch_size', 256)}"
+        f"_lr{args.lr or float(train_cfg.get('learning_rate', 1e-3))}"
+        f"_ep{args.epochs or train_cfg.get('epochs', 20)}"
+        f".pth"
+    )
+
     checkpoints_dir = cfg["paths"]["checkpoints_dir"]
-    checkpoint_file = model_cfg.get("checkpoint", "dae_text.pth")
-    model_save_path = args.save_path or os.path.join(checkpoints_dir, checkpoint_file)
+    model_save_path = args.save_path or os.path.join(checkpoints_dir, ckpt_name)
 
     # ---------------- Training -----------------------
     train_dae(
