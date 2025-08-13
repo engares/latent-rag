@@ -31,7 +31,7 @@ models:
     checkpoint: "dae_text.pth"
 
 # CONTRASTIVE AUTOENCODER
-  contrastive:
+  cae:
     input_dim: 384
     latent_dim: 64
     hidden_dim: 512

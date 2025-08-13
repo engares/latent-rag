@@ -5,12 +5,11 @@ This script orchestrates the retrieval-augmented generation (RAG) pipeline, incl
 from __future__ import annotations
 
 import argparse
-from html import parser
-import os
-import sys
+import sys  # needed for parse_known_args
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-from unittest import runner
+from typing import Any, Dict, List, Optional, Sequence
+
+import time
 
 import torch
 from dotenv import load_dotenv
@@ -33,16 +32,9 @@ from models.variational_autoencoder import VariationalAutoencoder
 from models.denoising_autoencoder import DenoisingAutoencoder
 from models.contrastive_autoencoder import ContrastiveAutoencoder
 
-from retrieval.retriever import build_retriever          
-from retrieval.FAISSEmbeddingRetriever import FAISSEmbeddingRetriever
+from retrieval.retriever import build_retriever
 import time
 from typing import Any
-
-import csv
-import json
-from datetime import datetime
-
-from retrieval.common import StatsTracker
 
 
 def _print_run_card(cfg: Dict[str, Any], ae_type: str, *, generate: bool) -> None:
@@ -161,15 +153,28 @@ def _safe_dim_from_tensor(x: torch.Tensor) -> int:
 # ---------------------------------------------------------------------------
 
 class PipelineRunner:
-    """Orchestrates the RAG pipeline: encode → retrieve → (optional) generate → evaluate."""
+    """Orchestrates the RAG pipeline: encode → retrieve → (optional) generate → evaluate.
 
-    def __init__(self, cfg: Dict[str, Any], ae_type: str, logger):
+    Supports reuse of precomputed (chunked) corpus and base SBERT embeddings for multiple AE variants.
+    """
+
+    def __init__(self, cfg: Dict[str, Any], ae_type: str, logger,
+                 *,
+                 pre_corpus_texts: Optional[Sequence[str]] = None,
+                 pre_corpus_doc_ids: Optional[Sequence[int]] = None,
+                 base_corpus_embeddings: Optional[torch.Tensor] = None,
+                 base_query_embeddings: Optional[torch.Tensor] = None,
+                 ):  # noqa: D401
         """Initialize the pipeline runner.
 
         Args:
             cfg: Configuration dictionary.
             ae_type: Type of autoencoder used.
             logger: Logger instance.
+            pre_corpus_texts: Optional precomputed chunked corpus texts.
+            pre_corpus_doc_ids: Optional precomputed document IDs for the corpus.
+            base_corpus_embeddings: Optional precomputed base embeddings for the corpus.
+            base_query_embeddings: Optional precomputed base embeddings for the queries.
         """
         self.cfg = cfg
         self.ae_type = ae_type
@@ -185,6 +190,11 @@ class PipelineRunner:
             autoencoder=ae_model,
             device=self.device,
         )
+        # Store precomputed reuse artifacts
+        self.pre_corpus_texts = list(pre_corpus_texts) if pre_corpus_texts is not None else None
+        self.pre_corpus_doc_ids = list(pre_corpus_doc_ids) if pre_corpus_doc_ids is not None else None
+        self.base_corpus_embeddings = base_corpus_embeddings
+        self.base_query_embeddings = base_query_embeddings
 
                 # --- NEW: explicit dimension banner + invariant
         self.logger.main.info(
@@ -222,34 +232,54 @@ class PipelineRunner:
             "Running pipeline: |queries|=%d |corpus|=%d", len(queries), len(corpus)
         )
 
-        # Immutable copy for doc-level evaluation
-        orig_docs = list(corpus)
-        context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
-
-        # Optional chunking for inference
-        ch_cfg = self.cfg.get("chunking", {})
-        use_chunking = bool(ch_cfg.get("enabled", False))
-        if use_chunking:
-            from utils.data_utils import prepare_inference_chunks
-            chunks, chunk_index = prepare_inference_chunks(
-                orig_docs,
-                mode=ch_cfg.get("mode", "sliding"),
-                max_tokens=ch_cfg.get("max_tokens", 128),
-                stride=ch_cfg.get("stride", 64),
-                min_tokens=ch_cfg.get("min_tokens", 48),
-                tokenizer_name=ch_cfg.get("tokenizer_name", self.cfg["embedding_model"]["name"]),
-                index_out=ch_cfg.get("index_out"),
-                store_chunk_text=ch_cfg.get("store_chunk_text", True),
-            )
-            corpus = chunks
-            corpus_doc_ids: List[int] = chunk_index["doc_id"].astype(int).tolist()  # chunk → doc
-            self.logger.main.info("Chunking enabled: |docs|=%d → |chunks|=%d", len(orig_docs), len(corpus))
-            self.logger.main.debug("Chunking configuration: %s", ch_cfg)
+        # Reuse pre-chunked corpus if provided
+        if self.pre_corpus_texts is not None:
+            corpus = self.pre_corpus_texts
+            corpus_doc_ids = self.pre_corpus_doc_ids or list(range(len(corpus)))
+            use_chunking = bool(self.cfg.get("chunking", {}).get("enabled", False))
+            # Mapping for evaluation (chunk texts treated as docs)
+            orig_docs = list(corpus)
+            context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
         else:
-            corpus_doc_ids = list(range(len(corpus)))
-
+            # Immutable copy for doc-level evaluation
+            orig_docs = list(corpus)
+            context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
+            # Optional chunking for inference
+            ch_cfg = self.cfg.get("chunking", {})
+            use_chunking = bool(ch_cfg.get("enabled", False))
+            if use_chunking:
+                from utils.data_utils import prepare_inference_chunks
+                chunks, chunk_index = prepare_inference_chunks(
+                    orig_docs,
+                    mode=ch_cfg.get("mode", "sliding"),
+                    max_tokens=ch_cfg.get("max_tokens", 128),
+                    stride=ch_cfg.get("stride", 64),
+                    min_tokens=ch_cfg.get("min_tokens", 48),
+                    tokenizer_name=ch_cfg.get("tokenizer_name", self.cfg["embedding_model"]["name"]),
+                    index_out=ch_cfg.get("index_out"),
+                    store_chunk_text=ch_cfg.get("store_chunk_text", True),
+                )
+                corpus = chunks
+                corpus_doc_ids = chunk_index["doc_id"].astype(int).tolist()
+                self.logger.main.info("Chunking enabled: |docs|=%d → |chunks|=%d", len(orig_docs), len(corpus))
+                self.logger.main.debug("Chunking configuration: %s", ch_cfg)
+            else:
+                corpus_doc_ids = list(range(len(corpus)))
         # ------------------------- Encode corpus (COMPRESSED) -------------------------
-        doc_embeddings = self.compressor.encode_text(list(corpus), compress=True)
+        if self.base_corpus_embeddings is not None:
+            # Reuse base SBERT embeddings → apply AE encode if needed
+            with torch.inference_mode():
+                if self.compressor.autoencoder:
+                    x = self.base_corpus_embeddings.to(self.device)
+                    enc = self.compressor.autoencoder.encode(x)
+                    if isinstance(enc, tuple):
+                        enc = enc[0]
+                    doc_embeddings = enc.detach().cpu().contiguous()
+                else:
+                    doc_embeddings = self.base_corpus_embeddings.detach().cpu().contiguous()
+        else:
+            with torch.inference_mode():
+                doc_embeddings = self.compressor.encode_text(list(corpus), compress=True)
         if not (isinstance(doc_embeddings, torch.Tensor) and doc_embeddings.ndim == 2):
             raise ValueError("Corpus embeddings must be a 2D tensor [N, D].")
         d_corpus = int(doc_embeddings.size(1))
@@ -295,7 +325,19 @@ class PipelineRunner:
             raise
 
         # ------------------------- Encode queries (COMPRESSED) -------------------------
-        query_embeddings = self.compressor.encode_text(list(queries), compress=True)
+        if self.base_query_embeddings is not None:
+            with torch.inference_mode():
+                if self.compressor.autoencoder:
+                    qx = self.base_query_embeddings.to(self.device)
+                    qenc = self.compressor.autoencoder.encode(qx)
+                    if isinstance(qenc, tuple):
+                        qenc = qenc[0]
+                    query_embeddings = qenc.detach().cpu().contiguous()
+                else:
+                    query_embeddings = self.base_query_embeddings.detach().cpu().contiguous()
+        else:
+            with torch.inference_mode():
+                query_embeddings = self.compressor.encode_text(list(queries), compress=True)
         if not (isinstance(query_embeddings, torch.Tensor) and query_embeddings.ndim == 2):
             raise ValueError("Query embeddings must be a 2D tensor [N, D].")
         d_queries = int(query_embeddings.size(1))
@@ -304,42 +346,51 @@ class PipelineRunner:
                 f"Query/Corpus dim mismatch: queries D={d_queries} vs corpus D={d_corpus}."
             )
 
-        # ------------------------- Retrieval loop -------------------------
+        # ------------------------- Retrieval loop (batched FAISS search) -------------------------
         top_k = int(self.retr_cfg.get("top_k", 10))
         cand_k = int(self.retr_cfg.get("candidate_k", top_k * 3 if use_chunking else top_k))
+        per_doc_cap = int(self.retr_cfg.get("max_chunks_per_doc", 2)) if generate else 0
+
+        # Batch search once
+        D, I = self.retriever.search(query_embeddings, cand_k)  # D: [Q, cand_k]
+        texts_store = getattr(self.retriever, "_texts", [])
+        doc_ids_store = getattr(self.retriever, "_doc_ids", [])
 
         all_retrieved_docids: List[List[int]] = []
         answers: List[str] = []
-
-        for idx, (q, q_emb) in enumerate(zip(queries, query_embeddings)):
-            texts_k, scores_k, docids_k = self.retriever.retrieve(q_emb, top_k=cand_k)
-
-            # Aggregation: doc-level MaxSim
+        for qi in range(I.shape[0]):
+            idxs = I[qi]
+            scores = D[qi]
+            # Aggregation MaxSim per original doc id
             agg: Dict[int, float] = {}
-            for did, sc in zip(docids_k, scores_k):
-                prev = agg.get(did)
-                if (prev is None) or (sc > prev):
-                    agg[did] = sc
-
-            # Re-rank docs by max score (desc) and truncate to top_k unique
+            # Build ranked_docids
+            for didx, sc in zip(idxs.tolist(), scores.tolist()):
+                if didx < 0:
+                    continue
+                doc_id = doc_ids_store[didx]
+                if (doc_id not in agg) or (sc > agg[doc_id]):
+                    agg[doc_id] = sc
             ranked_docids = sorted(agg, key=agg.get, reverse=True)[:top_k]
             all_retrieved_docids.append(ranked_docids)
 
-            # Optional: context for LLM prioritizing chunks of top docs
             if generate:
-                per_doc_cap = int(self.retr_cfg.get("max_chunks_per_doc", 2))
-                used: Dict[int, int] = {d: 0 for d in ranked_docids}
-                selected_chunks: List[str] = []
-                for t, d in zip(texts_k, docids_k):
-                    if d in used and used[d] < per_doc_cap:
-                        selected_chunks.append(t)
-                        used[d] += 1
-                    if len(selected_chunks) >= max(1, per_doc_cap * len(ranked_docids)):
+                # Select candidate texts matching ranked_docids (respect per_doc_cap)
+                used = {d: 0 for d in ranked_docids}
+                selected: List[str] = []
+                for didx in idxs.tolist():
+                    if didx < 0:
+                        continue
+                    d_id = doc_ids_store[didx]
+                    if d_id in used and used[d_id] < per_doc_cap:
+                        selected.append(texts_store[didx])
+                        used[d_id] += 1
+                    if len(selected) >= max(1, per_doc_cap * len(ranked_docids)):
                         break
-                ctx_for_llm = selected_chunks if selected_chunks else texts_k[:top_k]
-                ans = self.generator.generate(q, ctx_for_llm)
+                ctx_for_llm = selected if selected else [texts_store[d] for d in idxs[:top_k].tolist()]
+                ans = self.generator.generate(queries[qi], ctx_for_llm)
                 answers.append(ans)
-                self.logger.main.debug("[%d] Q: %s | A: %s", idx, q, (ans[:60] + "…") if ans else "")
+                # Debug logging kept concise
+                self.logger.main.debug("[%d] Generated answer len=%d", qi, len(ans) if ans else 0)
 
         # ------------------------- Retrieval evaluation -------------------------
         ret_metrics = {}
@@ -448,31 +499,61 @@ def _parse_args() -> argparse.Namespace:  # noqa: D401
 
 def main() -> None:  # noqa: D401 – standard script
     args = _parse_args()
-
     cfg = load_config(args.config)
     log = init_logger(cfg.get("logging", {}))
     set_seed(args.seed, cfg.get("training", {}).get("deterministic", False), logger=log.train)
     load_dotenv()
-
     ae_variants = (
         [args.ae_type]
         if args.ae_type != "all"
-        else [k for k in cfg.get("models", {}).keys() if k in {"vae", "dae", "cae"}]
+        else [k for k in cfg.get("models", {}).keys() if k in {"vae", "dae", "cae", "none"}]
     )
-
-    # --------------------------------------------------------------------- 
-
+    # Data
     queries, corpus, relevant = load_evaluation_data(args.dataset, max_samples=args.max_samples)
-
-    # --------------------------------------------------------------------- Run each variant
+    # Pre-chunk + base embeddings reuse
+    ch_cfg = cfg.get("chunking", {})
+    use_chunking = bool(ch_cfg.get("enabled", False))
+    corpus_texts = corpus
+    corpus_doc_ids: List[int]
+    if use_chunking:
+        from utils.data_utils import prepare_inference_chunks
+        chunks, chunk_index = prepare_inference_chunks(
+            corpus_texts,
+            mode=ch_cfg.get("mode", "sliding"),
+            max_tokens=ch_cfg.get("max_tokens", 128),
+            stride=ch_cfg.get("stride", 64),
+            min_tokens=ch_cfg.get("min_tokens", 48),
+            tokenizer_name=ch_cfg.get("tokenizer_name", cfg["embedding_model"]["name"]),
+            index_out=ch_cfg.get("index_out"),
+            store_chunk_text=ch_cfg.get("store_chunk_text", True),
+        )
+        corpus_texts = chunks
+        corpus_doc_ids = chunk_index["doc_id"].astype(int).tolist()
+    else:
+        corpus_doc_ids = list(range(len(corpus_texts)))
+    # Base compressor (no AE) for reuse
+    base_compressor = EmbeddingCompressor(
+        base_model_name=cfg["embedding_model"]["name"],
+        autoencoder=None,
+        device=resolve_device(cfg.get("training", {}).get("device")),
+    )
+    with torch.inference_mode():
+        base_corpus_emb = base_compressor.encode_text(list(corpus_texts), compress=False)
+        base_query_emb = base_compressor.encode_text(list(queries), compress=False)
+    # Per-variant loop (apply AE encode on base embeddings)
     for ae in ae_variants:
         rprint(f"\n[bold cyan]==== PIPELINE ({ae.upper()}) ====\n[/]")
         _print_run_card(cfg, ae, generate=args.generate)
-        runner = PipelineRunner(cfg, ae, log)
-        result = runner.process(queries, corpus, relevant_docs=relevant, generate=args.generate)
+        runner = PipelineRunner(
+            cfg, ae, log,
+            pre_corpus_texts=corpus_texts,
+            pre_corpus_doc_ids=corpus_doc_ids,
+            base_corpus_embeddings=base_corpus_emb,
+            base_query_embeddings=base_query_emb,
+        )
+        result = runner.process(queries, corpus_texts, relevant_docs=relevant, generate=args.generate)
         row = build_metrics_row(cfg, args, ae, result)
         _append_csv_row(args.metrics_csv, row)
-
                 
 
 
