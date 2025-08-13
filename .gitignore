@@ -15,3 +15,5 @@ __pycache__/
 *.faiss
 *.json
 *.csv
+*.faiss.meta.json
+*.log
