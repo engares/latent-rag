@@ -41,7 +41,7 @@ models:
 data:
   dataset: "squad"            #  "uda"  |  "squad"
   version: "v1"          #  v1, v2  ONly for squad
-  max_samples: 2000        #  optional, blankk to use all samples
+  max_samples:         #  optional, blankk to use all samples for test
   include_unanswerable: false   #  Only Squad v2 has this option
 
 training:

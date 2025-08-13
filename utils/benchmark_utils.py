@@ -22,10 +22,10 @@ def percentile(values: Sequence[float], q: float) -> float:
 
 
 def _append_csv_row(csv_path: str, row: Dict[str, Any]) -> None:
-    """Append a dict row to CSV, creating header on first write."""
+    """Append a dict row to CSV, creating header on first write or if file is empty."""
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    write_header = not path.exists()
+    write_header = (not path.exists()) or (path.stat().st_size == 0)
     with path.open("a", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(row.keys()))
         if write_header:
@@ -188,12 +188,24 @@ def build_metrics_row(
     metric, normalize_l2 = _extract_retriever_metric(cfg)
     ae_h = _extract_ae_hparams(cfg, ae)
 
-    # Disk sizes (index + embeddings)
-    index_size_mb = _probe_index_size_mb(cfg)
-    emb_orig_mb, emb_comp_mb, saving_pct = _probe_embedding_sizes_mb(
-        dataset=str(data.get("dataset", getattr(args, "dataset", "squad"))),
-        ae=ae,
-    )
+    # ------------------------------------------------------------------
+    # Size estimation (optimized): use ONLY theoretical sizes.z
+    # ------------------------------------------------------------------
+    index_size_mb = None  # no disk probe
+    n_corpus = int(result.get("n_corpus", 0))
+    dim_in = int(result.get("dim_in", 0))  # may overwrite earlier local dim_in (kept consistent)
+    dim_out = int(result.get("dim_out", 0))
+    orig_dtype = _cfg_get(cfg, "embedding_model", "dtype", default="float32")
+    comp_dtype = _cfg_get(cfg, "models", ae, "dtype", default="float32")
+    emb_orig_mb = emb_comp_mb = saving_pct = float("nan")
+    if n_corpus > 0 and dim_in > 0 and dim_out > 0:
+        emb_orig_mb, emb_comp_mb, saving_pct = compute_per_run_sizes(
+            n_corpus=n_corpus,
+            dim_in=dim_in,
+            dim_out=dim_out,
+            orig_dtype=orig_dtype,
+            comp_dtype=comp_dtype,
+        )
 
     # Optional generation metrics (if runner provided them)
     gen = result.get("generation_metrics", {}) or {}
@@ -205,13 +217,19 @@ def build_metrics_row(
 
     # chunking
     chunking_enabled = bool(ch.get("enabled", False))
+    # safeguard numeric casts
+    max_samples_val = data.get("max_samples", getattr(args, "max_samples", 0))
+    if max_samples_val is None:
+        max_samples_val = getattr(args, "max_samples", 0) or 0
+    # build row
     row: Dict[str, Any] = {
         # identity
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "tag": getattr(args, "benchmark_tag", None),
         "dataset": data.get("dataset", getattr(args, "dataset", None)),
         "split": "validation",
-        "max_samples": int(data.get("max_samples", getattr(args, "max_samples", 0))),
+        "max_samples": _safe_int(max_samples_val, 0),
+        "n_queries": _safe_int(result.get("n_queries")),  # NEW: actual evaluated query count
 
         # embedder & AE
         "embedder": embm.get("name", "?"),
@@ -231,9 +249,9 @@ def build_metrics_row(
         "metric": metric,
         "normalize_l2": bool(normalize_l2),
         "use_gpu": bool(retr_cfg.get("use_gpu", False)),
-        "top_k": int(retr_cfg.get("top_k", 10)),
-        "candidate_k": int(retr_cfg.get("candidate_k", 10)),
-        "n_corpus": int(result.get("n_corpus", 0)),
+        "top_k": _safe_int(retr_cfg.get("top_k", 10), 10),
+        "candidate_k": _safe_int(retr_cfg.get("candidate_k", 10), 10),
+        "n_corpus": _safe_int(result.get("n_corpus", 0), 0),
 
         # chunking footprint
         "chunking_enabled": chunking_enabled,
@@ -248,9 +266,9 @@ def build_metrics_row(
         "nDCG@10": _m("nDCG@10"),
 
         # latency/throughput
-        "build_time_s": float(stats.get("build_time_s", 0.0)),
-        "search_time_s": float(stats.get("search_time_s", 0.0)),
-        "search_calls": int(stats.get("search_calls", 0)),
+        "build_time_s": _safe_float(stats.get("build_time_s", 0.0), 0.0),
+        "search_time_s": _safe_float(stats.get("search_time_s", 0.0), 0.0),
+        "search_calls": _safe_int(stats.get("search_calls", 0), 0),
         "query_p50_ms": p50,
         "query_p95_ms": p95,
         "qps": qps,
@@ -291,3 +309,77 @@ def build_metrics_row(
         })
 
     return row
+
+# utils/benchmark_utils.py (añade después de los imports)
+
+def _bytes_per_elem(dtype: Any) -> int:
+    """Return bytes per element for a given dtype label or numpy dtype."""
+    # Acepta strings o np.dtype; default razonable = float32
+    mapping = {
+        "float32": 4, "float": 4, np.float32: 4,
+        "float16": 2, "half": 2, np.float16: 2,
+        "float64": 8, "double": 8, np.float64: 8,
+        "int8": 1, np.int8: 1, "uint8": 1, np.uint8: 1,
+        "int16": 2, np.int16: 2, "uint16": 2, np.uint16: 2,
+        "int32": 4, np.int32: 4, "uint32": 4, np.uint32: 4,
+    }
+    return int(mapping.get(dtype, 4))
+
+
+def _theoretical_size_mb(n: int, d: int, dtype: Any = "float32") -> float:
+    """Theoretical size in MB for an [n, d] dense matrix with given dtype (no container overhead)."""
+    if n <= 0 or d <= 0:
+        return float("nan")
+    return (n * d * _bytes_per_elem(dtype)) / 1_000_000.0
+
+
+def compute_per_run_sizes(
+    n_corpus: int,
+    dim_in: int,
+    dim_out: int,
+    *,
+    orig_dtype: Any = "float32",
+    comp_dtype: Any = "float32",
+) -> Tuple[float, float, float]:
+    """Return (emb_disk_mb_original, emb_disk_mb_compressed, storage_saving_pct) for THIS run.
+
+    - Homogéneo: ambos tamaños se calculan con el MISMO N (n_corpus) y en el MISMO dtype supuesto.
+    - Sin I/O: tamaño teórico; evita medir artefactos ajenos (caches, índices, checkpoints).
+    """
+    mb_orig = _theoretical_size_mb(n_corpus, dim_in, orig_dtype)
+    mb_comp = _theoretical_size_mb(n_corpus, dim_out, comp_dtype)
+    saving = None
+    if not (np.isnan(mb_orig) or np.isnan(mb_comp)) and mb_orig > 0:
+        saving = max(0.0, (1.0 - (mb_comp / mb_orig)) * 100.0)
+    return mb_orig, mb_comp, saving
+
+
+def persist_array_and_get_size_mb(arr: np.ndarray, path: Path, *, npz: bool = False) -> float:
+    """(Opcional) Guarda el array y devuelve su tamaño real en MB. Útil si quieres 'prueba física'.
+
+    Nota: si usas .npz (comprimido), ya NO comparas a igualdad de contenedor con .npy.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if npz:
+        np.savez_compressed(path, arr=arr)
+    else:
+        np.save(path, arr)
+    return float(path.stat().st_size) / 1_000_000.0
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default

@@ -65,7 +65,7 @@ def _print_run_card(cfg: Dict[str, Any], ae_type: str, *, generate: bool) -> Non
 
     lines = [
         "Experiment Configuration",
-        f"  Dataset: {data.get('dataset', '?')} / split=validation / max_samples={data.get('max_samples')}",
+        f"  Dataset: {data.get('dataset', '?')} / split=validation / max_samples={data.get('max_samples')} We are using validation as the test set",
         f"  Embedding: {embm.get('name', '?')} (max_length={embm.get('max_length', '?')})",
         f"  Autoencoder: {ae_type}",
         f"  Retrieval: backend={retr.get('backend', 'faiss')} index_type={retr.get('index_type', 'hnsw')} "
@@ -185,6 +185,21 @@ class PipelineRunner:
             autoencoder=ae_model,
             device=self.device,
         )
+
+                # --- NEW: explicit dimension banner + invariant
+        self.logger.main.info(
+            "[Compressor] SBERT_dim=%d | latent_dim=%d | compressed=%s",
+            int(self.compressor.input_dim),
+            int(self.compressor.latent_dim),
+            str(self.compressor.latent_dim < self.compressor.input_dim),
+        )
+        if self.compressor.latent_dim > self.compressor.input_dim:
+            raise ValueError(
+                f"Invalid dims: latent_dim={self.compressor.latent_dim} "
+                f"> input_dim={self.compressor.input_dim}"
+            )
+        
+    
         self.logger.main.info("Compressor ready (AE = %s)", ae_type)
 
         # Retrieval configuration
@@ -201,15 +216,8 @@ class PipelineRunner:
         corpus: Sequence[str],
         relevant_docs: Optional[Sequence[Sequence[str]]] = None,
         generate: bool = False,
-    ) -> None:
-        """Run the pipeline: encode → retrieve → (optional) generate → evaluate.
-
-        Args:
-            queries: List of query strings.
-            corpus: List of document strings.
-            relevant_docs: Ground-truth relevant documents for evaluation.
-            generate: Whether to run the generation step.
-        """
+    ) -> Dict[str, Any]:
+        """Run the pipeline end-to-end and return metrics and footprint."""
         self.logger.main.info(
             "Running pipeline: |queries|=%d |corpus|=%d", len(queries), len(corpus)
         )
@@ -240,27 +248,63 @@ class PipelineRunner:
         else:
             corpus_doc_ids = list(range(len(corpus)))
 
-        # Encode corpus once
+        # ------------------------- Encode corpus (COMPRESSED) -------------------------
         doc_embeddings = self.compressor.encode_text(list(corpus), compress=True)
+        if not (isinstance(doc_embeddings, torch.Tensor) and doc_embeddings.ndim == 2):
+            raise ValueError("Corpus embeddings must be a 2D tensor [N, D].")
+        d_corpus = int(doc_embeddings.size(1))
+        # --- NEW: assert compression path is really used
+        if d_corpus != int(self.compressor.latent_dim):
+            raise RuntimeError(
+                f"Unexpected corpus dim: got {d_corpus}, expected latent_dim={self.compressor.latent_dim}. "
+                "Are you sure compress=True and the AE checkpoint matches the configured latent_dim?"
+            )
+        cr = float(self.compressor.input_dim) / float(d_corpus)
+        self.logger.main.info("[Embeddings] corpus_dim=%d (CR=%.2f× from %d)",
+                              d_corpus, cr, int(self.compressor.input_dim))
 
-        # Build or load retrieval index
+        # ------------------------- Build retriever -------------------------
         t0 = time.perf_counter()
         self.retriever = build_retriever(
-            embeddings=doc_embeddings,
+            embeddings=doc_embeddings,   # D must be == latent_dim
             texts=corpus,
             doc_ids=corpus_doc_ids,
             cfg=self.retr_cfg,
         )
+        init_secs = time.perf_counter() - t0
         self.logger.main.info(
             "Retriever backend '%s' initialised in %.2f s",
-            self.retr_cfg.get("backend", "faiss"),
-            time.perf_counter() - t0,
+            self.retr_cfg.get("backend", "faiss"), init_secs
         )
+        # --- NEW: sanity log if FAISS exposes 'd' and 'ntotal'
+        try:
+            faiss_d = int(getattr(getattr(self.retriever, "index", None), "d", d_corpus))
+            faiss_n = int(getattr(getattr(self.retriever, "index", None), "ntotal", len(corpus)))
+            self.logger.main.info("[FAISS] d=%d ntotal=%d (expect d=%d, ntotal=%d)",
+                                  faiss_d, faiss_n, d_corpus, len(corpus))
+            if faiss_d != d_corpus:
+                raise RuntimeError(
+                    f"FAISS dimension mismatch: index.d={faiss_d} vs embeddings D={d_corpus}"
+                )
+            if faiss_n != len(corpus):
+                raise RuntimeError(
+                    f"FAISS ntotal mismatch: index.ntotal={faiss_n} vs |corpus|={len(corpus)}"
+                )
+        except Exception:
+            # Fail fast: dimension/size mismatch leads to corrupt retrieval quality
+            raise
 
-        # Encode queries
+        # ------------------------- Encode queries (COMPRESSED) -------------------------
         query_embeddings = self.compressor.encode_text(list(queries), compress=True)
+        if not (isinstance(query_embeddings, torch.Tensor) and query_embeddings.ndim == 2):
+            raise ValueError("Query embeddings must be a 2D tensor [N, D].")
+        d_queries = int(query_embeddings.size(1))
+        if d_queries != d_corpus:
+            raise RuntimeError(
+                f"Query/Corpus dim mismatch: queries D={d_queries} vs corpus D={d_corpus}."
+            )
 
-        # Retrieve with doc-level MaxSim aggregation
+        # ------------------------- Retrieval loop -------------------------
         top_k = int(self.retr_cfg.get("top_k", 10))
         cand_k = int(self.retr_cfg.get("candidate_k", top_k * 3 if use_chunking else top_k))
 
@@ -297,7 +341,7 @@ class PipelineRunner:
                 answers.append(ans)
                 self.logger.main.debug("[%d] Q: %s | A: %s", idx, q, (ans[:60] + "…") if ans else "")
 
-        # Evaluation (doc-level, using doc_ids)
+        # ------------------------- Retrieval evaluation -------------------------
         ret_metrics = {}
         if relevant_docs:
             relevant_doc_ids: List[List[int]] = []
@@ -327,7 +371,7 @@ class PipelineRunner:
             for k, v in ret_metrics.items():
                 rprint(f"{k}: {v['mean']:.4f} ± {v['std']:.4f}")
 
-        # Optional generation metrics (requires many samples)
+        # ------------------------- Generation evaluation -------------------------
         if generate and relevant_docs and len(queries) >= 100:
             gen_metrics = eval_generation(
                 references=[r[0] for r in relevant_docs],
@@ -338,28 +382,29 @@ class PipelineRunner:
             for m, d in gen_metrics.items():
                 rprint(f"{m}: {d['mean']:.2f} (CI 95%: {d['ci_lower']:.2f}–{d['ci_upper']:.2f})")
 
-        # --- NEW: devolver paquete de resultados + estadísticas del retriever
+        # ------------------------- Metrics packing -------------------------
         retr_stats = {}
         if hasattr(self.retriever, "get_stats"):
             retr_stats = self.retriever.get_stats(reset=False)
 
-        # dim_out lo inferimos del embedding del corpus; dim_in del config/model
-        if not (isinstance(doc_embeddings, torch.Tensor) and doc_embeddings.ndim == 2):
-            raise ValueError("Expected a 2D tensor [N, D] to infer embedding dimension.")
-        dim_out = int(doc_embeddings.size(1))
-        dim_in  = int(self.compressor.input_dim if hasattr(self.compressor, "input_dim")
-                      else self.cfg.get("embedding_model", {}).get("dim", dim_out))
+        # Dimensions reported out
+        dim_out = d_corpus
+        dim_in = int(self.compressor.input_dim)  # --- NEW: always SBERT native dim
         n_corpus = int(len(corpus))
 
-        return {
-            "retrieval_metrics": ret_metrics,   # dict[str] -> {"mean": x, "std": y}
-            "retriever_stats":  retr_stats,     # build_time_s, per_query_ms, etc.
+        result = {
+            "retrieval_metrics": ret_metrics,
+            "retriever_stats":  retr_stats,
             "dim_in": dim_in,
             "dim_out": dim_out,
             "n_corpus": n_corpus,
+            "n_queries": int(len(queries)),  # NEW: actual number of query samples used
             "ae_type": self.ae_type,
         }
-
+        # --- NEW: terse banner for CSV cross-check
+        self.logger.main.info("[Result] dim_in=%d dim_out=%d CR=%.2f× n=%d",
+                              dim_in, dim_out, (dim_in / max(1, dim_out)), n_corpus)
+        return result
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -382,7 +427,7 @@ def _parse_args() -> argparse.Namespace:  # noqa: D401
 
     parser.add_argument("--dataset", choices=["squad", "uda"], default="squad",
                     help="Dataset for evaluation (SQuAD or UDA)")
-    parser.add_argument("--max_samples", type=int, default=2000,
+    parser.add_argument("--max_samples", type=int, default=None,
                         help="Maximum number of queries to use")
     parser.add_argument("--benchmark", action="store_true",
                         help="Compare against BM25, DPR, SBERT, AE...")
@@ -412,10 +457,11 @@ def main() -> None:  # noqa: D401 – standard script
     ae_variants = (
         [args.ae_type]
         if args.ae_type != "all"
-        else [k for k in cfg.get("models", {}).keys() if k in {"vae", "dae", "contrastive"}]
+        else [k for k in cfg.get("models", {}).keys() if k in {"vae", "dae", "cae"}]
     )
 
-    # --------------------------------------------------------------------- Toy corpus (replace with real dataset) --
+    # --------------------------------------------------------------------- 
+
     queries, corpus, relevant = load_evaluation_data(args.dataset, max_samples=args.max_samples)
 
     # --------------------------------------------------------------------- Run each variant

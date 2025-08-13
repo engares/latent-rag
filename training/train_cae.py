@@ -3,6 +3,8 @@
 from __future__ import annotations
 import argparse, os, math
 from typing import Optional
+import json
+import csv
 
 import torch
 from torch.utils.data import DataLoader
@@ -52,7 +54,7 @@ def train_cae(
     weight_decay: float = 1e-4,
     clip_grad_norm: float = 1.0,                # 0 = disable
     device: Optional[str] = None,
-) -> None:
+) -> str:
 
     device = device or resolve_device()
     log = logger.train if hasattr(logger, "train") else logger
@@ -71,6 +73,9 @@ def train_cae(
     scheduler = _build_scheduler(optim, patience or 4)
 
     best_val, epochs_no_improve = math.inf, 0
+    best_train = math.inf
+    best_state = None
+    history = []  # track per-epoch metrics
 
     # Triplet loss native
     triplet_fn = torch.nn.TripletMarginLoss(margin=margin, p=2)
@@ -116,14 +121,22 @@ def train_cae(
         log.info("[Epoch %02d/%d] train=%.6f | val=%.6f", epoch, epochs, train_loss, val_loss)
         scheduler.step(val_loss)
 
+        # record epoch metrics
+        history.append({
+            'epoch': epoch,
+            'train_loss': float(train_loss),
+            'val_loss': float(val_loss),
+            'lr': float(optim.param_groups[0]['lr']),
+        })
+
         # ---------------- Early stop --------------------
         rel_improve = (best_val - val_loss) / best_val if best_val < math.inf else 1.0
         if rel_improve > min_delta:
             best_val, epochs_no_improve = val_loss, 0
-            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-            torch.save(model.state_dict(), model_save_path)
-            print(f"  -> New best val_loss. Checkpoint saved at {model_save_path}")
-            logger.train.info("New best val_loss: %.6f → checkpoint %s", best_val, model_save_path)
+            best_train = train_loss
+            best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            print(f"  -> Improved val_loss={best_val:.6f} (train={best_train:.6f}) [pending save]")
+            logger.train.info("Improved val=%.6f (train=%.6f) pending final save", best_val, best_train)
         else:
             epochs_no_improve += 1
             if patience and epochs_no_improve >= patience:
@@ -131,9 +144,57 @@ def train_cae(
                 logger.train.info("[EARLY STOP] No improvement in validation.")
                 break
 
+    # ------------- Final single save -------------------------------------
+    base_ckpt = model_save_path[:-4] if model_save_path.endswith('.pth') else model_save_path
+    history_dir = os.path.join('models', 'history')  # central history directory
+    os.makedirs(history_dir, exist_ok=True)
+
+    if best_state is not None:
+        final_ckpt = f"{base_ckpt}_tr{best_train:.4f}_val{best_val:.4f}.pth"
+        os.makedirs(os.path.dirname(final_ckpt), exist_ok=True)
+        torch.save(best_state, final_ckpt)
+        stem = os.path.splitext(os.path.basename(final_ckpt))[0]
+        model_save_path = final_ckpt
+    else:
+        stem = os.path.splitext(os.path.basename(base_ckpt))[0] + '_noimp'
+        print("[WARN] No improvement captured; nothing saved.")
+        logger.train.warning("No improvement captured; nothing saved.")
+
+    # ---- Save meta JSON & history CSV in /models/history -----------------
+    meta_path = os.path.join(history_dir, stem + '.json')
+    csv_path  = os.path.join(history_dir, stem + '.csv')
+
+    meta_payload = {
+        'best_train_loss': None if best_train == math.inf else best_train,
+        'best_val_loss': None if best_val == math.inf else best_val,
+        'margin': margin,
+        'hard_negatives': hard_negatives,
+        'input_dim': input_dim,
+        'latent_dim': latent_dim,
+        'hidden_dim': hidden_dim,
+        'batch_size': batch_size,
+        'learning_rate': lr,
+        'weight_decay': weight_decay,
+        'patience': patience,
+        'val_split': val_split,
+        'epochs_ran': len(history),
+    }
+    with open(meta_path, 'w') as jf:
+        json.dump(meta_payload, jf, indent=2)
+
+    if history:
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=history[0].keys())
+            writer.writeheader(); writer.writerows(history)
+        print(f"[HISTORY] Saved history CSV -> {csv_path}")
+        logger.train.info("Saved history CSV %s", csv_path)
+    print(f"[META] Saved meta JSON -> {meta_path}")
+    logger.train.info("Saved meta JSON %s", meta_path)
+
     print(f"[DONE] Best val_loss = {best_val:.6f}")
     logger.main.info("[DONE] Best val_loss = %.6f", best_val)
     logger.main.info("")
+    return model_save_path
 
 # --------------------------------------------------------------------------- #
 #  CLI                                                                       #
@@ -205,4 +266,6 @@ if __name__ == "__main__":
         logger       = log,
     )
 
-    train_cae(**hparams)
+    train_cae_return = train_cae(**hparams)
+    if train_cae_return:
+        print(f"[RESULT] Final best checkpoint: {train_cae_return}")

@@ -3,6 +3,8 @@
 import argparse
 import os
 from typing import Optional
+import json
+import csv
 
 import torch
 from torch.utils.data import DataLoader
@@ -16,7 +18,7 @@ from utils.data_utils import prepare_datasets
 from dotenv import load_dotenv
 
 ###############################################################################
-#  TRAINING LOOP                                                             #
+#  TRAINING LOOP                                                              #
 ###############################################################################
 
 def train_vae(
@@ -45,7 +47,13 @@ def train_vae(
     model = VariationalAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
     optim = torch.optim.Adam(model.parameters(), lr=lr)
 
-    best_val, no_improve = float("inf"), 0
+    # Base (prefix) for checkpoint naming: remove .pth if user provided it
+    base_ckpt = model_save_path[:-4] if model_save_path.endswith('.pth') else model_save_path
+
+    best_val, best_train, no_improve = float("inf"), float("inf"), 0
+    best_model_path = None
+    best_state = None  # will hold best model parameters
+    history = []  # per-epoch metrics
     for epoch in range(1, epochs + 1):
         # ---------------- train ------------------
         model.train(); running = 0.0
@@ -71,17 +79,61 @@ def train_vae(
         val_loss = val_running / len(val_ds)
 
         print(f"[Epoch {epoch:02d}/{epochs}] train={train_loss:.6f} | val={val_loss:.6f}")
+        history.append({
+            'epoch': epoch,
+            'train_loss': float(train_loss),
+            'val_loss': float(val_loss),
+            'lr': float(optim.param_groups[0]['lr']),
+        })
 
+        # Track best (do NOT save yet) ---------------------------------------
         if val_loss < best_val - 1e-4:
-            best_val, no_improve = val_loss, 0
-            os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-            torch.save(model.state_dict(), model_save_path)
+            best_val, best_train, no_improve = val_loss, train_loss, 0
+            best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            print(f"[BEST] Improved validation -> val={best_val:.6f} (train={best_train:.6f})")
         else:
             no_improve += 1
             if patience and no_improve >= patience:
                 print("[EARLY STOP] No improvement in validation."); break
 
-    print(f"[DONE] best_val_loss = {best_val:.6f}")
+    # ---------------- final save ------------------------------------------------
+    history_dir = os.path.join('models', 'history')
+    os.makedirs(history_dir, exist_ok=True)
+    if best_state is not None:
+        final_ckpt_path = f"{base_ckpt}_tr{best_train:.4f}_val{best_val:.4f}.pth"
+        os.makedirs(os.path.dirname(final_ckpt_path), exist_ok=True)
+        torch.save(best_state, final_ckpt_path)
+        stem = os.path.splitext(os.path.basename(final_ckpt_path))[0]
+        best_model_path = final_ckpt_path
+    else:
+        stem = os.path.splitext(os.path.basename(base_ckpt))[0] + '_noimp'
+        print("[WARN] No best state captured; nothing saved.")
+
+    meta_path = os.path.join(history_dir, stem + '.json')
+    csv_path  = os.path.join(history_dir, stem + '.csv')
+    with open(meta_path, "w") as jf:
+        json.dump({
+            "best_train_loss": None if best_train == float('inf') else best_train,
+            "best_val_loss": None if best_val == float('inf') else best_val,
+            "input_dim": input_dim,
+            "latent_dim": latent_dim,
+            "hidden_dim": hidden_dim,
+            "batch_size": batch_size,
+            "learning_rate": lr,
+            "val_split": val_split,
+            "patience": patience,
+            "epochs_ran": len(history),
+        }, jf, indent=2)
+    if history:
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=history[0].keys())
+            writer.writeheader(); writer.writerows(history)
+        print(f"[HISTORY] Saved history CSV -> {csv_path}")
+    print(f"[META] Saved meta JSON -> {meta_path}")
+
+    print(f"[DONE] best_val_loss = {best_val:.6f} | best_train_loss = {best_train:.6f}")
+
+    return best_model_path
 
 ###############################################################################
 #  CLI                                                                       #
@@ -115,23 +167,21 @@ if __name__ == "__main__":
 
     # ------------- model save path --------------
     ckpt_name = (
-        f"cae"
+        f"vae"
         f"_in{model_cfg.get('input_dim', 384)}"
         f"_lat{model_cfg.get('latent_dim', 64)}"
         f"_hid{model_cfg.get('hidden_dim', 512)}"
-        f"_margin{args.margin:.2f}"
-        f"_hn{int(not args.no_hard_negatives)}"
         f"_bs{args.batch_size or train_cfg.get('batch_size', 256)}"
         f"_lr{args.lr or float(train_cfg.get('learning_rate', 1e-3))}"
         f"_ep{args.epochs or train_cfg.get('epochs', 20)}"
-        f".pth"
+        f".pth"  # metrics will be appended inside training loop
     )
 
     checkpoints_dir = cfg["paths"]["checkpoints_dir"]
     model_save_path = args.save_path or os.path.join(checkpoints_dir, ckpt_name)
 
     # ------------- training ----------------------
-    train_vae(
+    best_ckpt_path = train_vae(
         dataset_path=dataset_path,
         input_dim=model_cfg.get("input_dim", 384),
         latent_dim=model_cfg.get("latent_dim", 64),
@@ -144,3 +194,5 @@ if __name__ == "__main__":
         patience=None if args.patience == 0 else args.patience,
         device=device,
     )
+    if best_ckpt_path:
+        print(f"[RESULT] Final best checkpoint: {best_ckpt_path}")

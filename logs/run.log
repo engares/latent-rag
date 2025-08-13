@@ -1128,3 +1128,187 @@ Training VAE | device=cuda | deterministic=False
 2025-08-12 14:21:54,545 [INFO] train: [EARLY STOP] No improvement in validation.
 2025-08-12 14:21:54,545 [INFO] main: [DONE] Best val_loss = 0.042987
 2025-08-12 14:21:54,545 [INFO] main: 
+2025-08-13 09:16:36,040 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 09:26:40,379 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 09:33:52,824 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 09:33:53,047 [INFO] main: 
+2025-08-13 09:33:53,047 [INFO] main: Training DAE | device=cuda
+2025-08-13 09:33:56,118 [INFO] train: [Epoch 01/50] train=0.001390 | val=0.001221
+2025-08-13 09:33:56,118 [INFO] train: Improved val=0.001221 (train=0.001390) pending final save
+2025-08-13 09:33:58,256 [INFO] train: [Epoch 02/50] train=0.001177 | val=0.001157
+2025-08-13 09:34:00,356 [INFO] train: [Epoch 03/50] train=0.001130 | val=0.001128
+2025-08-13 09:34:02,548 [INFO] train: [Epoch 04/50] train=0.001105 | val=0.001109
+2025-08-13 09:34:02,549 [INFO] train: Improved val=0.001109 (train=0.001105) pending final save
+2025-08-13 09:34:04,942 [INFO] train: [Epoch 05/50] train=0.001089 | val=0.001097
+2025-08-13 09:34:07,344 [INFO] train: [Epoch 06/50] train=0.001078 | val=0.001091
+2025-08-13 09:34:10,550 [INFO] train: [Epoch 07/50] train=0.001070 | val=0.001084
+2025-08-13 09:34:12,986 [INFO] train: [Epoch 08/50] train=0.001063 | val=0.001079
+2025-08-13 09:34:15,427 [INFO] train: [Epoch 09/50] train=0.001058 | val=0.001074
+2025-08-13 09:34:15,427 [INFO] train: [EARLY STOP] No improvement in validation.
+2025-08-13 09:34:15,429 [INFO] train: Saved best checkpoint ./models/checkpoints/dae_in384_lat64_hid512_bs128_lr0.001_ep50_tr0.0011_val0.0011.pth
+2025-08-13 09:34:15,429 [INFO] main: [DONE] Best val_loss = 0.001109
+2025-08-13 09:34:15,429 [INFO] main: 
+2025-08-13 10:09:12,075 [INFO] main: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 10:09:12,446 [INFO] train: CAE | device=cuda | hard_negatives=True | margin=0.200
+2025-08-13 10:09:15,701 [INFO] train: [Epoch 01/50] train=0.058703 | val=0.052021
+2025-08-13 10:09:15,702 [INFO] train: Improved val=0.052021 (train=0.058703) pending final save
+2025-08-13 10:09:18,015 [INFO] train: [Epoch 02/50] train=0.045776 | val=0.049932
+2025-08-13 10:09:18,016 [INFO] train: Improved val=0.049932 (train=0.045776) pending final save
+2025-08-13 10:09:20,198 [INFO] train: [Epoch 03/50] train=0.042671 | val=0.047904
+2025-08-13 10:09:20,199 [INFO] train: Improved val=0.047904 (train=0.042671) pending final save
+2025-08-13 10:09:22,583 [INFO] train: [Epoch 04/50] train=0.040678 | val=0.047025
+2025-08-13 10:09:22,584 [INFO] train: Improved val=0.047025 (train=0.040678) pending final save
+2025-08-13 10:09:25,843 [INFO] train: [Epoch 05/50] train=0.039313 | val=0.047323
+2025-08-13 10:09:28,295 [INFO] train: [Epoch 06/50] train=0.038581 | val=0.046987
+2025-08-13 10:09:30,898 [INFO] train: [Epoch 07/50] train=0.038143 | val=0.046671
+2025-08-13 10:09:30,899 [INFO] train: Improved val=0.046671 (train=0.038143) pending final save
+2025-08-13 10:09:33,707 [INFO] train: [Epoch 08/50] train=0.037166 | val=0.047581
+2025-08-13 10:09:36,508 [INFO] train: [Epoch 09/50] train=0.036984 | val=0.047357
+2025-08-13 10:09:39,336 [INFO] train: [Epoch 10/50] train=0.036352 | val=0.047664
+2025-08-13 10:09:42,122 [INFO] train: [Epoch 11/50] train=0.031241 | val=0.043730
+2025-08-13 10:09:42,123 [INFO] train: Improved val=0.043730 (train=0.031241) pending final save
+2025-08-13 10:09:44,564 [INFO] train: [Epoch 12/50] train=0.029427 | val=0.044160
+2025-08-13 10:09:46,967 [INFO] train: [Epoch 13/50] train=0.028944 | val=0.044570
+2025-08-13 10:09:49,338 [INFO] train: [Epoch 14/50] train=0.028471 | val=0.044953
+2025-08-13 10:09:52,161 [INFO] train: [Epoch 15/50] train=0.024634 | val=0.042987
+2025-08-13 10:09:52,162 [INFO] train: Improved val=0.042987 (train=0.024634) pending final save
+2025-08-13 10:09:55,010 [INFO] train: [Epoch 16/50] train=0.022961 | val=0.043493
+2025-08-13 10:09:58,645 [INFO] train: [Epoch 17/50] train=0.022639 | val=0.043507
+2025-08-13 10:10:01,539 [INFO] train: [Epoch 18/50] train=0.021641 | val=0.044199
+2025-08-13 10:10:04,441 [INFO] train: [Epoch 19/50] train=0.019501 | val=0.043446
+2025-08-13 10:10:06,985 [INFO] train: [Epoch 20/50] train=0.018591 | val=0.043357
+2025-08-13 10:10:06,986 [INFO] train: [EARLY STOP] No improvement in validation.
+2025-08-13 10:10:06,999 [INFO] train: Saved history CSV models/history/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50_tr0.0246_val0.0430.csv
+2025-08-13 10:10:06,999 [INFO] train: Saved meta JSON models/history/cae_in384_lat64_hid512_margin0.20_hn1_bs128_lr0.001_ep50_tr0.0246_val0.0430.json
+2025-08-13 10:10:06,999 [INFO] main: [DONE] Best val_loss = 0.042987
+2025-08-13 10:10:07,000 [INFO] main: 
+2025-08-13 10:19:36,063 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 10:19:36,341 [INFO] main: 
+2025-08-13 10:19:36,341 [INFO] main: Training DAE | device=cuda
+2025-08-13 10:19:39,808 [INFO] train: [Epoch 01/10] train=0.001390 | val=0.001221
+2025-08-13 10:19:39,809 [INFO] train: Improved val=0.001221 (train=0.001390) pending final save
+2025-08-13 10:19:41,924 [INFO] train: [Epoch 02/10] train=0.001177 | val=0.001157
+2025-08-13 10:19:43,941 [INFO] train: [Epoch 03/10] train=0.001130 | val=0.001128
+2025-08-13 10:19:46,062 [INFO] train: [Epoch 04/10] train=0.001105 | val=0.001109
+2025-08-13 10:19:46,063 [INFO] train: Improved val=0.001109 (train=0.001105) pending final save
+2025-08-13 10:19:48,304 [INFO] train: [Epoch 05/10] train=0.001089 | val=0.001097
+2025-08-13 10:19:50,549 [INFO] train: [Epoch 06/10] train=0.001078 | val=0.001091
+2025-08-13 10:19:52,779 [INFO] train: [Epoch 07/10] train=0.001070 | val=0.001084
+2025-08-13 10:19:56,004 [INFO] train: [Epoch 08/10] train=0.001063 | val=0.001079
+2025-08-13 10:19:58,308 [INFO] train: [Epoch 09/10] train=0.001058 | val=0.001074
+2025-08-13 10:19:58,308 [INFO] train: [EARLY STOP] No improvement in validation.
+2025-08-13 10:19:58,319 [INFO] train: Saved history CSV models/history/dae_in384_lat64_hid512_bs128_lr0.001_ep10_tr0.0011_val0.0011.csv
+2025-08-13 10:19:58,319 [INFO] train: Saved meta JSON models/history/dae_in384_lat64_hid512_bs128_lr0.001_ep10_tr0.0011_val0.0011.json
+2025-08-13 10:19:58,319 [INFO] main: [DONE] Best val_loss = 0.001109
+2025-08-13 10:19:58,320 [INFO] main: 
+2025-08-13 10:41:23,460 [INFO] utils.training_utils: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 11:20:47,070 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 11:20:51,554 [INFO] main: Device resolved → cuda
+2025-08-13 11:20:51,831 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 11:20:53,686 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 11:20:53,686 [INFO] main: Compressor ready (AE = vae)
+2025-08-13 11:20:53,710 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 11:20:53,710 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-13 11:20:54,281 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 11:20:54,289 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s
+2025-08-13 11:20:54,289 [INFO] main: [FAISS] d=64 ntotal=315 (expect d=64, ntotal=315)
+2025-08-13 11:20:54,678 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=315
+2025-08-13 14:28:50,786 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:28:55,037 [INFO] main: Device resolved → cuda
+2025-08-13 14:28:55,314 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:28:57,229 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:28:57,229 [INFO] main: Compressor ready (AE = vae)
+2025-08-13 14:28:57,251 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:28:57,251 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-13 14:28:57,840 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:28:57,849 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s
+2025-08-13 14:28:57,849 [INFO] main: [FAISS] d=64 ntotal=315 (expect d=64, ntotal=315)
+2025-08-13 14:28:58,260 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=315
+2025-08-13 14:31:47,825 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:31:51,987 [INFO] main: Device resolved → cuda
+2025-08-13 14:31:52,239 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:31:54,043 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:31:54,043 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:31:54,064 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:31:54,064 [INFO] main: Running pipeline: |queries|=2000 |corpus|=315
+2025-08-13 14:31:54,621 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:31:54,628 [INFO] main: Retriever backend 'faiss' initialised in 0.01 s
+2025-08-13 14:31:54,629 [INFO] main: [FAISS] d=64 ntotal=315 (expect d=64, ntotal=315)
+2025-08-13 14:31:55,024 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=315
+2025-08-13 14:34:13,091 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:34:18,193 [INFO] main: Device resolved → cuda
+2025-08-13 14:34:18,426 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:34:20,444 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:34:20,444 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:34:20,467 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:34:20,467 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-08-13 14:34:22,725 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:34:22,744 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-13 14:34:22,744 [INFO] main: [FAISS] d=64 ntotal=2067 (expect d=64, ntotal=2067)
+2025-08-13 14:34:24,370 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=2067
+2025-08-13 14:35:08,481 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:35:12,592 [INFO] main: Device resolved → cuda
+2025-08-13 14:35:12,851 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:35:15,121 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:35:15,121 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:35:15,143 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:35:15,143 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-08-13 14:35:17,451 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:35:17,473 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-13 14:35:17,473 [INFO] main: [FAISS] d=64 ntotal=2067 (expect d=64, ntotal=2067)
+2025-08-13 14:35:19,116 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=2067
+2025-08-13 14:50:19,886 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:50:24,378 [INFO] main: Device resolved → cuda
+2025-08-13 14:50:24,643 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:50:26,596 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:50:26,596 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:50:26,618 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:50:26,618 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-08-13 14:50:28,969 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:50:28,992 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-13 14:50:28,993 [INFO] main: [FAISS] d=64 ntotal=2067 (expect d=64, ntotal=2067)
+2025-08-13 14:50:30,619 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=2067
+2025-08-13 14:54:00,333 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:54:04,446 [INFO] main: Device resolved → cuda
+2025-08-13 14:54:04,699 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:54:06,721 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:54:06,722 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:54:06,743 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:54:06,743 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-08-13 14:54:09,391 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:54:09,413 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-13 14:54:09,413 [INFO] main: [FAISS] d=64 ntotal=2067 (expect d=64, ntotal=2067)
+2025-08-13 14:54:11,242 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=2067
+2025-08-13 14:55:03,398 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:55:09,534 [INFO] main: Device resolved → cuda
+2025-08-13 14:55:09,755 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:55:11,617 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:55:11,617 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:55:11,630 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:55:11,630 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-08-13 14:55:13,875 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:55:13,895 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-13 14:55:13,895 [INFO] main: [FAISS] d=64 ntotal=2067 (expect d=64, ntotal=2067)
+2025-08-13 14:55:15,644 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=2067
+2025-08-13 14:57:13,415 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:57:17,605 [INFO] main: Device resolved → cuda
+2025-08-13 14:57:18,902 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:57:20,967 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:57:20,967 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:57:20,980 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:57:20,981 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-08-13 14:57:23,302 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:57:23,320 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-13 14:57:23,320 [INFO] main: [FAISS] d=64 ntotal=2067 (expect d=64, ntotal=2067)
+2025-08-13 14:57:25,185 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=2067
+2025-08-13 14:57:55,446 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-08-13 14:57:59,397 [INFO] main: Device resolved → cuda
+2025-08-13 14:57:59,669 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-08-13 14:58:01,671 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-08-13 14:58:01,671 [INFO] main: Compressor ready (AE = dae)
+2025-08-13 14:58:01,682 [INFO] RAGGenerator: OpenAI API key loaded successfully.
+2025-08-13 14:58:01,682 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-08-13 14:58:03,860 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-08-13 14:58:03,882 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-08-13 14:58:03,882 [INFO] main: [FAISS] d=64 ntotal=2067 (expect d=64, ntotal=2067)
+2025-08-13 14:58:05,606 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=2067
