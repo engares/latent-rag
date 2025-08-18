@@ -1,3 +1,24 @@
+# ---------------------------------------------------------------------------
+# Usage:
+#   Basic run (auto selects best checkpoint if explicit one not in config):
+#       python main.py --ae_type vae
+#   With custom config & limit samples:
+#       python main.py --config config/config.yaml --ae_type cae --max_samples 500
+#   Explicit checkpoint override:
+#       python main.py --ae_type cae --checkpoint models/checkpoints/bm_cae_cae_YYYYMMDD_xxxxxx.pth
+#   Run generation (RAG) and append metrics to CSV:
+#       python main.py --ae_type dae --generate --metrics_csv logs/benchmarks/experiments.csv
+#   Run all AE variants defined in config:
+#       python main.py --ae_type all
+#   Run baselines (BM25 / DPR) alongside AE variants:
+#       python main.py --ae_type vae --benchmark
+#
+# Auto checkpoint selection (when no --checkpoint and no models.<ae_type>.checkpoint):
+#   1. Search checkpoints dir (paths.checkpoints_dir or ./models/checkpoints) for patterns:
+#        bm_<ae_type>*.pt/.pth/.bin OR *<ae_type>*best*.(pt|pth|bin) OR generic *<ae_type>*.(pt|pth)
+#   2. If filenames contain a segment like '_val0.0010' (validation loss/metric), pick the one with
+#      the lowest numeric value after 'val'. Otherwise choose the most recently modified file.
+# ---------------------------------------------------------------------------
 """Main pipeline for RAG-AE experiments.
 
 This script orchestrates the retrieval-augmented generation (RAG) pipeline, including encoding, retrieval, optional generation, and evaluation.
@@ -8,8 +29,7 @@ import argparse
 import sys  # needed for parse_known_args
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
-
-import time
+import re
 
 import torch
 from dotenv import load_dotenv
@@ -33,8 +53,16 @@ from models.denoising_autoencoder import DenoisingAutoencoder
 from models.contrastive_autoencoder import ContrastiveAutoencoder
 
 from retrieval.retriever import build_retriever
-import time
-from typing import Any
+import time  # single time import retained
+
+# Optional import of baseline benchmark runner (BM25/DPR)
+try:  # pragma: no cover
+    from evaluation.benchmark import run_benchmark as _run_baselines
+except Exception as e:
+    raise ImportError(
+        "Failed to import evaluation.benchmark.run_benchmark. "
+        "Ensure 'evaluation' module is correctly set up and contains 'benchmark.py'."
+    ) from e
 
 
 def _print_run_card(cfg: Dict[str, Any], ae_type: str, *, generate: bool) -> None:
@@ -95,13 +123,72 @@ def _resolve_ckpt_path(checkpoint: str | None, cfg_paths: Dict[str, Any]) -> Pat
     base = Path(cfg_paths.get("checkpoints_dir", "./models/checkpoints"))
     return (base / p).resolve()
 
+def _auto_discover_checkpoint(ae_type: str, cfg_paths: Dict[str, Any]) -> Path | None:
+    """Attempt to locate the best checkpoint automatically.
+
+    Strategy:
+      * Prefer files starting with 'bm_<ae_type>' (your training naming scheme)
+      * Else accept files containing '<ae_type>' and 'best'
+      * Else fall back to any file containing '<ae_type>'
+      * Among candidates, if any expose a pattern '_val<NUMBER>' (e.g. '_val0.0010'), choose the
+        one with the LOWEST value (assuming it's a validation loss). Otherwise choose newest mtime.
+    """
+    base = Path(cfg_paths.get("checkpoints_dir", "./models/checkpoints")).resolve()
+    if not base.exists():
+        return None
+    exts = ("*.pt", "*.pth", "*.bin")
+    patterns_priority: list[tuple[int, str]] = []
+    # Priority tiers (lower number = higher priority)
+    for ext in exts:
+        patterns_priority.append((0, f"bm_{ae_type}*{ext[1:]}"))          # bm_vae*.pt
+        patterns_priority.append((1, f"*{ae_type}*best*{ext[1:]}"))       # *vae*best*.pt
+        patterns_priority.append((2, f"*{ae_type}*{ext[1:]}"))            # *vae*.pt
+    candidates: list[tuple[Path, int]] = []
+    seen: set[Path] = set()
+    for tier, pat in patterns_priority:
+        for p in base.glob(pat):
+            if p.is_file() and p not in seen:
+                candidates.append((p, tier))
+                seen.add(p)
+    if not candidates:
+        return None
+
+    # Extract val score if present
+    def extract_val(path: Path) -> float | None:
+        m = re.search(r"[_-]val([0-9]*\.?[0-9]+)", path.stem)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+        return None
+
+    # Partition by tier
+    best_tier = min(t for _, t in candidates)
+    tier_candidates = [p for p, t in candidates if t == best_tier]
+
+    scored = [(p, extract_val(p)) for p in tier_candidates]
+    with_scores = [x for x in scored if x[1] is not None]
+    if with_scores:
+        # Lower validation loss presumed better
+        return min(with_scores, key=lambda x: x[1])[0]
+    # Fallback: newest modification time
+    return max(tier_candidates, key=lambda p: p.stat().st_mtime)
+
 def _load_autoencoder(
     cfg_models: Dict[str, Dict[str, Any]],
     ae_type: str,
     device: str,
     cfg_paths: Dict[str, Any] | None = None,
+    override_ckpt: str | None = None,
 ) -> Optional[torch.nn.Module]:
-    """Instantiate and load the requested autoencoder."""
+    """Instantiate and load the requested autoencoder.
+
+    Precedence for checkpoint path:
+      1. --checkpoint CLI override
+      2. models.<ae_type>.checkpoint from config
+      3. Auto-discovery via _auto_discover_checkpoint
+    """
     if ae_type == "none":
         return None
 
@@ -123,16 +210,21 @@ def _load_autoencoder(
     else:
         raise RuntimeError("Unrecognized AE type.")
 
-    # --- Resolve checkpoint relative to paths.checkpoints_dir if needed
-    ckpt = _resolve_ckpt_path(mcfg.get("checkpoint"), cfg_paths or {})
-    if ckpt and ckpt.exists():
-        model.load_state_dict(torch.load(str(ckpt), map_location=device))
+    # Determine checkpoint path
+    ckpt: Path | None
+    if override_ckpt:
+        ckpt = Path(override_ckpt).expanduser().resolve()
     else:
+        ckpt = _resolve_ckpt_path(mcfg.get("checkpoint"), cfg_paths or {})
+        if not (ckpt and ckpt.exists()):
+            ckpt = _auto_discover_checkpoint(ae_type, cfg_paths or {})
+    if not (ckpt and ckpt.exists() and ckpt.is_file()):
         raise FileNotFoundError(
-            f"Checkpoint for '{ae_type}' not found: {ckpt} "
-            f"(check 'paths.checkpoints_dir' and 'models.{ae_type}.checkpoint')"
+            f"Checkpoint for '{ae_type}' not found (override={override_ckpt}). "
+            f"Set 'models.{ae_type}.checkpoint', pass --checkpoint, or place a bm_{ae_type}*.pth file."
         )
 
+    model.load_state_dict(torch.load(str(ckpt), map_location=device))
     return model.to(device).eval()
 
 
@@ -142,7 +234,7 @@ def _load_autoencoder(
 # ---------------------------------------------------------------------------
 
 def _safe_dim_from_tensor(x: torch.Tensor) -> int:
-    """Devuelve la segunda dimensión de un tensor [N, D]; si no cumple, intenta inferir."""
+    """Return the second dimension of a 2D tensor [N, D]; otherwise raise."""
     if isinstance(x, torch.Tensor) and x.ndim == 2:
         return x.size(1)
     raise ValueError("Expected a 2D tensor [N, D] to infer embedding dimension.")
@@ -164,6 +256,7 @@ class PipelineRunner:
                  pre_corpus_doc_ids: Optional[Sequence[int]] = None,
                  base_corpus_embeddings: Optional[torch.Tensor] = None,
                  base_query_embeddings: Optional[torch.Tensor] = None,
+                 checkpoint_override: str | None = None,
                  ):  # noqa: D401
         """Initialize the pipeline runner.
 
@@ -184,7 +277,7 @@ class PipelineRunner:
         self.logger.main.info("Device resolved → %s", self.device)
 
         # Compressor (SBERT ± AE)
-        ae_model = _load_autoencoder(cfg["models"], ae_type, self.device, cfg.get("paths", {}))
+        ae_model = _load_autoencoder(cfg["models"], ae_type, self.device, cfg.get("paths", {}), override_ckpt=checkpoint_override)
         self.compressor = EmbeddingCompressor(
             base_model_name=cfg["embedding_model"]["name"],
             autoencoder=ae_model,
@@ -488,6 +581,7 @@ def _parse_args() -> argparse.Namespace:  # noqa: D401
                     help="Ruta del CSV donde añadir una fila por run")
     parser.add_argument("--benchmark_tag", default="",
                     help="Etiqueta libre para identificar el experimento (columna 'tag')")
+    parser.add_argument("--checkpoint", default=None, help="Explicit path to AE checkpoint (overrides config & auto-discovery)")
 
 
     return parser.parse_args()
@@ -550,12 +644,50 @@ def main() -> None:  # noqa: D401 – standard script
             pre_corpus_doc_ids=corpus_doc_ids,
             base_corpus_embeddings=base_corpus_emb,
             base_query_embeddings=base_query_emb,
+            checkpoint_override=args.checkpoint if ae == args.ae_type else None,
         )
         result = runner.process(queries, corpus_texts, relevant_docs=relevant, generate=args.generate)
         row = build_metrics_row(cfg, args, ae, result)
         _append_csv_row(args.metrics_csv, row)
-                
 
+    # ------------------------------------------------------------------
+    # Baselines: BM25 and DPR into the SAME CSV when --benchmark is set
+    # ------------------------------------------------------------------
+    if args.benchmark:
+        if _run_baselines is None:
+            log.main.warning(
+                "BM25/DPR benchmark skipped: evaluation.benchmark.run_benchmark not found."
+            )
+        else:
+            rprint("\n[bold magenta]==== BASELINE BENCHMARK (BM25 / DPR) ====\n[/]")
+            baseline_results = _run_baselines(
+                queries=queries,
+                corpus=corpus,  # original (pre-chunk) docs
+                relevant=relevant,
+                cfg_path=args.config,
+                retrievers=("bm25", "dpr"),
+            )
+            dim_native = int(base_compressor.input_dim)
+            for name, payload in baseline_results.items():
+                if isinstance(payload, dict) and "retrieval_metrics" in payload:
+                    ret_metrics = payload["retrieval_metrics"]
+                    retr_stats = payload.get("retriever_stats", {})
+                else:
+                    ret_metrics = payload
+                    retr_stats = {}
+                base_result = {
+                    "retrieval_metrics": ret_metrics,
+                    "retriever_stats": retr_stats,
+                    "dim_in": dim_native,
+                    "dim_out": dim_native,
+                    "n_corpus": int(len(corpus)),
+                    "n_queries": int(len(queries)),
+                    "ae_type": name,
+                }
+                row = build_metrics_row(cfg, args, name, base_result)
+                _append_csv_row(args.metrics_csv, row)
+            rprint("\n[green]BM25/DPR metrics appended to CSV.[/]\n")
+                
 
 if __name__ == "__main__":
     main()

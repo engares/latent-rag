@@ -16,7 +16,6 @@ def vae_loss(
     mu: torch.Tensor,
     logvar: torch.Tensor,
     *,
-    mse_reduction: str = "mean",   # "mean" or "sum"
     beta: float = 1.0,             # β-VAE (β=1 → classic VAE)
 ) -> torch.Tensor:
     """VAE loss = reconstruction + β·KL  (KL normalized by batch).
@@ -25,7 +24,6 @@ def vae_loss(
         x_reconstructed: output from the decoder  ― shape [B, D]
         x_target:        original embeddings ― shape [B, D]
         mu, logvar:      parameters of the latent distribution ― shape [B, Z]
-        mse_reduction:   "mean" (recommended) or "sum"
         beta:            weight of the KL term (β-VAE)
     """
     cos = F.cosine_similarity(x_reconstructed, x_target, dim=-1)

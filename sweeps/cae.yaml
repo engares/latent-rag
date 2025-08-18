@@ -1,0 +1,60 @@
+# Sweep space for Contrastive Autoencoder (CAE)
+# space: definición de hiperparámetros a explorar
+# constants: valores fijos que quieres mantener durante la búsqueda
+
+space:
+  latent_dim:
+    type: int
+    low: 32
+    high: 256
+    step: 32
+  hidden_dim:
+    type: int
+    low: 256
+    high: 1024
+    step: 256
+  lr:
+    type: float
+    low: 1e-5
+    high: 5e-3
+    log: true
+  batch_size:
+    type: categorical
+    choices: [128, 256, 512]
+  weight_decay:
+    type: float
+    low: 1e-6
+    high: 1e-3
+    log: true
+  margin:
+    type: float
+    low: 0.05
+    high: 0.5
+  scheduler_factor:
+    type: float
+    low: 0.3
+    high: 0.7
+  patience:
+    type: int
+    low: 3
+    high: 10
+  scheduler_patience:
+    type: int
+    low: 1
+    high: 5
+  max_grad_norm:
+    type: float
+    low: 0.5
+    high: 2.0
+  early_stop_delta:
+    type: float
+    low: 0.001
+    high: 0.01
+  hard_negatives:
+    type: categorical
+    choices: [true, false]
+
+constants:
+  epochs: 50
+  val_split: 0.1
+  num_workers: 0

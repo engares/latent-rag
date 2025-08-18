@@ -426,7 +426,7 @@ def _prepare_uda(cfg: dict) -> Dict[str, str]: # NOT IN USE
     return {
         "vae": os.path.join(output_dir, cfg["models"]["vae"]["dataset_file"]),
         "dae": os.path.join(output_dir, cfg["models"]["dae"]["dataset_file"]),
-        "cae": os.path.join(output_dir, cfg["models"]["contrastive"]["dataset_file"]),
+        "cae": os.path.join(output_dir, cfg["models"]["cae"]["dataset_file"]),
     }
 
 
@@ -445,7 +445,7 @@ def _prepare_squad(cfg: dict) -> Dict[str, str]:
     return {
         "vae": os.path.join(output_dir, cfg["models"]["vae"]["dataset_file"]),
         "dae": os.path.join(output_dir, cfg["models"]["dae"]["dataset_file"]),
-        "cae": os.path.join(output_dir, cfg["models"]["contrastive"]["dataset_file"]),
+        "cae": os.path.join(output_dir, cfg["models"]["cae"]["dataset_file"]),
     }
 
 

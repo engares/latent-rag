@@ -1,0 +1,226 @@
+# hparam_search.py – unified Optuna-based hyperparameter search for AE variants
+
+"""
+python hparam_search.py --model dae --sweep sweeps/cae.yaml --n_trials 25
+"""
+
+from __future__ import annotations
+import argparse, os, json
+from datetime import datetime
+import optuna
+import torch
+import inspect
+import shutil, csv
+
+from utils.load_config import load_config, init_logger
+from utils.training_utils import set_seed
+from utils.data_utils import prepare_datasets
+
+from training.train_cae import train_cae
+from training.train_vae import train_vae
+from training.train_dae import train_dae
+
+REGISTRY = {
+    'cae': train_cae,
+    'vae': train_vae,
+    'dae': train_dae,
+}
+
+def _load_sweep_yaml(path: str) -> dict:
+    import yaml
+    with open(path, 'r') as f:
+        return yaml.safe_load(f)
+
+def build_space(trial: optuna.Trial, space_cfg: dict) -> dict:
+    params = {}
+    for name, spec in space_cfg.items():
+        kind = spec['type']
+        if kind == 'int':
+            step = spec.get('step')
+            low_i = int(spec['low']); high_i = int(spec['high'])
+            if step is not None:
+                params[name] = trial.suggest_int(name, low_i, high_i, step=int(step))
+            else:
+                params[name] = trial.suggest_int(name, low_i, high_i)
+        elif kind == 'float':
+            low = float(spec['low'])
+            high = float(spec['high'])
+            params[name] = trial.suggest_float(name, low, high, log=spec.get('log', False))
+        elif kind == 'categorical':
+            params[name] = trial.suggest_categorical(name, spec['choices'])
+        else:
+            raise ValueError(f'Unsupported space type: {kind}')
+    return params
+
+def allocate_device(trial_idx: int, available_gpus: list[int] | None) -> str | None:
+    if not available_gpus:
+        return None
+    return f"cuda:{available_gpus[trial_idx % len(available_gpus)]}"
+
+
+def extract_val_from_meta(ckpt_path: str) -> float:
+    # history/ meta stem alignment
+    if ckpt_path is None:
+        return float('inf')
+    stem = os.path.splitext(os.path.basename(ckpt_path))[0]
+    meta_path = os.path.join('models', 'history', stem + '.json')
+    if not os.path.exists(meta_path):
+        return float('inf')
+    try:
+        with open(meta_path, 'r') as f:
+            meta = json.load(f)
+        return float(meta.get('best_val_loss', float('inf')))
+    except Exception:
+        return float('inf')
+
+
+def main():
+    ap = argparse.ArgumentParser(description='Hyperparameter search for AE variants')
+    ap.add_argument('--config', default='./config/config.yaml')
+    ap.add_argument('--model', required=True, choices=list(REGISTRY.keys()))
+    ap.add_argument('--sweep', required=True, help='YAML defining search space')
+    ap.add_argument('--study', default=None)
+    ap.add_argument('--storage', default='sqlite:///optuna_hpo.db')
+    ap.add_argument('--n_trials', type=int, default=30)
+    ap.add_argument('--timeout', type=int, default=None)
+    ap.add_argument('--sampler', default='tpe', choices=['tpe','cmaes','random'])
+    ap.add_argument('--pruner', default='asha', choices=['asha','median','none'])
+    ap.add_argument('--direction', default='minimize', choices=['minimize','maximize'])
+    args = ap.parse_args()
+
+    cfg = load_config(args.config)
+    log = init_logger(cfg['logging'])
+    train_cfg = cfg.get('training', {})
+    base_seed = train_cfg.get('seed', 42)
+    set_seed(base_seed, train_cfg.get('deterministic', False), logger=log.main)
+
+    sweep_cfg = _load_sweep_yaml(args.sweep)
+    space_cfg = sweep_cfg['space']
+    constants = sweep_cfg.get('constants', {})
+
+    ds_path = prepare_datasets(cfg, variant=args.model, dataset_override=None)
+
+    if args.sampler == 'tpe':
+        sampler = optuna.samplers.TPESampler(multivariate=True, group=True, seed=base_seed)
+    elif args.sampler == 'cmaes':
+        sampler = optuna.samplers.CmaEsSampler(seed=base_seed)
+    else:
+        sampler = optuna.samplers.RandomSampler(seed=base_seed)
+
+    if args.pruner == 'asha':
+        pruner = optuna.pruners.SuccessiveHalvingPruner(min_resource=3, reduction_factor=3)
+    elif args.pruner == 'median':
+        pruner = optuna.pruners.MedianPruner(n_startup_trials=5, n_warmup_steps=3)
+    else:
+        pruner = optuna.pruners.NopPruner()
+
+    study_name = args.study or f"{args.model}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    study = optuna.create_study(direction=args.direction, sampler=sampler, pruner=pruner,
+                                storage=args.storage, study_name=study_name, load_if_exists=True)
+
+    trainer_fn = REGISTRY[args.model]
+    available_gpus = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else None
+
+    def objective(trial: optuna.Trial):
+        sampled = build_space(trial, space_cfg)
+        params = {**constants, **sampled,
+                  'dataset_path': ds_path,
+                  'logger': log,
+                  }
+        params['device'] = allocate_device(trial.number, available_gpus)
+
+        # default fallback hyperparams from config if not in space/constants
+        model_defaults = cfg.get('models', {}).get(args.model, {})
+        for key, default_val in model_defaults.items():
+            params.setdefault(key, default_val)
+
+        # Provide placeholder values if missing common args
+        params.setdefault('epochs', cfg.get('training', {}).get('epochs', 20))
+        params.setdefault('batch_size', cfg.get('training', {}).get('batch_size', 256))
+        params.setdefault('lr', cfg.get('training', {}).get('learning_rate', 1e-3))
+
+        # unify common optional args
+        for opt_name, cfg_key in [('weight_decay','weight_decay'), ('adam_beta1','adam_beta1'), ('adam_beta2','adam_beta2')]:
+            if opt_name not in params:
+                params[opt_name] = cfg.get('training', {}).get(cfg_key, params.get(opt_name, 0.0 if 'weight_decay' in opt_name else 0.9))
+
+        # Build descriptive base name (condensed hyperparams)
+        tag_parts = []
+        if 'latent_dim' in params: tag_parts.append(f"lat{int(params['latent_dim'])}")
+        if 'hidden_dim' in params: tag_parts.append(f"hid{int(params['hidden_dim'])}")
+        if 'lr' in params: tag_parts.append(f"lr{float(params['lr']):g}")
+        if 'batch_size' in params: tag_parts.append(f"bs{int(params['batch_size'])}")
+        if args.model == 'cae' and 'margin' in params: tag_parts.append(f"m{float(params['margin']):.2f}")
+        if args.model == 'vae' and 'beta' in params: tag_parts.append(f"b{float(params['beta']):.2f}")
+        param_tag = '_'.join(tag_parts)
+        base_name = f"{args.model}_{study_name}_t{trial.number}_{param_tag}" if param_tag else f"{args.model}_{study_name}_t{trial.number}"
+
+        # callback for pruning
+        def report_cb(epoch, train_loss, val_loss, lr):
+            trial.report(val_loss, step=epoch)
+            if trial.should_prune():
+                raise optuna.TrialPruned()
+
+        params['report_cb'] = report_cb
+        # Provide model_save_path; do not add trial_suffix to avoid duplication
+        params['model_save_path'] = os.path.join(cfg['paths']['checkpoints_dir'], base_name + '.pth')
+        params['trial_suffix'] = None
+
+        # ---- filter unsupported kwargs (e.g., dataset_file) ----
+        trainer_sig = inspect.signature(trainer_fn)
+        allowed = set(trainer_sig.parameters.keys())
+        filtered_params = {k: v for k, v in params.items() if k in allowed}
+        dropped = [k for k in params.keys() if k not in allowed]
+        if dropped:
+            log.main.debug("Dropped unsupported params for %s: %s", args.model, dropped)
+
+        try:
+            ckpt_path = trainer_fn(**filtered_params)
+        except optuna.TrialPruned:
+            raise
+        except Exception as e:
+            log.main.error("Trial %d failed: %s", trial.number, e)
+            return float('inf')
+
+        val_metric = extract_val_from_meta(ckpt_path)
+        trial.set_user_attr('ckpt', ckpt_path)
+        return val_metric
+
+    study.optimize(objective, n_trials=args.n_trials, timeout=args.timeout, gc_after_trial=True)
+
+    # Save trials summary CSV
+    history_dir = os.path.join('models', 'history')
+    os.makedirs(history_dir, exist_ok=True)
+    trials_csv = os.path.join(history_dir, f"hpo_{args.model}_{study_name}.csv")
+    # Collect all param keys
+    all_param_keys = sorted({k for t in study.trials for k in t.params.keys()})
+    fieldnames = ['number', 'value', 'state'] + all_param_keys + ['ckpt', 'duration']
+    with open(trials_csv, 'w', newline='') as fcsv:
+        writer = csv.DictWriter(fcsv, fieldnames=fieldnames)
+        writer.writeheader()
+        for t in study.trials:
+            row = {'number': t.number, 'value': t.value, 'state': str(t.state), 'ckpt': t.user_attrs.get('ckpt'), 'duration': getattr(t, 'duration', None)}
+            for k in all_param_keys:
+                row[k] = t.params.get(k)
+            writer.writerow(row)
+
+    # Best model prefix copy
+    best_ckpt = study.best_trial.user_attrs.get('ckpt')
+    bm_ckpt = None
+    if best_ckpt and os.path.exists(best_ckpt):
+        bm_dir = os.path.dirname(best_ckpt)
+        bm_ckpt = os.path.join(bm_dir, 'bm_' + os.path.basename(best_ckpt))
+        try:
+            shutil.copy2(best_ckpt, bm_ckpt)
+        except Exception as e:
+            log.main.warning("Could not copy best model: %s", e)
+
+    print('[HPO] Trials CSV:', trials_csv)
+    print('[HPO] Best value:', study.best_trial.value)
+    print('[HPO] Best params:', study.best_trial.params)
+    print('[HPO] Best ckpt:', best_ckpt)
+    if bm_ckpt:
+        print('[HPO] Best model copy:', bm_ckpt)
+
+if __name__ == '__main__':
+    main()

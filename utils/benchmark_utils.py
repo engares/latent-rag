@@ -93,7 +93,7 @@ def _probe_embedding_sizes_mb(dataset: str, ae: str) -> Tuple[Optional[float], O
         orig_mb = total if total > 0 else None
 
     # compressed: single file per AE (if it exists)
-    ae_map = {"vae": "vae", "dae": "dae", "contrastive": "contrastive"}
+    ae_map = {"vae": "vae", "dae": "dae", "cae": "cae"}
     comp_mb: Optional[float] = None
     if ae in ae_map:
         comp_path = root / f"{dataset.lower()}_{ae_map[ae]}_embeddings.pt"
