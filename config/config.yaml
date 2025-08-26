@@ -17,8 +17,8 @@ models:
 
   vae:
     input_dim: 384 # S- BERT embedding dimension
-    latent_dim: 64 
-    hidden_dim: 512
+    latent_dim: 96 
+    hidden_dim: 1024
     dataset_file: "squad_vae_embeddings.pt"          
     checkpoint: "vae_text.pth"
 
@@ -37,6 +37,14 @@ models:
     hidden_dim: 512
     dataset_file: "squad_cae_embeddings.pt"
     checkpoint: "cae_text.pth"
+
+# PLAIN AUTOENCODER (BASE)
+  base:
+    input_dim: 384
+    latent_dim: 64
+    hidden_dim: 512
+    dataset_file: "squad_vae_embeddings.pt"   # same structure as VAE (input==target)
+    checkpoint: "base_text.pth"
 
 data:
   dataset: "squad"            #  "uda"  |  "squad"

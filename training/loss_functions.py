@@ -1,35 +1,44 @@
-# /training/loss_functions.py
+# training/loss_functions.py
+from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+from torch import Tensor
+from typing import Tuple
 
 ###############################################################################
 #  VAE                                                                        #
 ###############################################################################
 
-import torch
-import torch.nn.functional as F
-
 def vae_loss(
-    x_reconstructed: torch.Tensor,
-    x_target: torch.Tensor,
-    mu: torch.Tensor,
-    logvar: torch.Tensor,
+    x_reconstructed: Tensor,
+    x_target: Tensor,
+    mu: Tensor,
+    logvar: Tensor,
     *,
-    beta: float = 1.0,             # β-VAE (β=1 → classic VAE)
-) -> torch.Tensor:
-    """VAE loss = reconstruction + β·KL  (KL normalized by batch).
+    beta: float = 1.0,
+    return_parts: bool = False,
+) -> Tensor | Tuple[Tensor, Tensor, Tensor]:
+    """Compute VAE loss = reconstruction + beta * KL (batch-wise means).
 
     Args:
-        x_reconstructed: output from the decoder  ― shape [B, D]
-        x_target:        original embeddings ― shape [B, D]
-        mu, logvar:      parameters of the latent distribution ― shape [B, Z]
-        beta:            weight of the KL term (β-VAE)
+        x_reconstructed: Decoder outputs of shape [B, D].
+        x_target: Original inputs of shape [B, D].
+        mu: Latent mean of shape [B, Z].
+        logvar: Latent log-variance of shape [B, Z].
+        beta: Weight of the KL term.
+        return_parts: If True, also return (recon, kl).
+
+    Returns:
+        loss if return_parts is False; otherwise (loss, recon, kl).
     """
     cos = F.cosine_similarity(x_reconstructed, x_target, dim=-1)
     recon = (1.0 - cos).mean()
     kl = -0.5 * (1 + logvar - mu.pow(2) - logvar.exp()).mean()
-    return recon + beta * kl
+    loss = recon + beta * kl
+    if return_parts:
+        return loss, recon, kl
+    return loss
 
 
 ###############################################################################

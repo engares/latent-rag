@@ -30,6 +30,8 @@ import sys  # needed for parse_known_args
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 import re
+import json
+from collections import defaultdict
 
 import torch
 from dotenv import load_dotenv
@@ -51,6 +53,7 @@ from generation.generator import RAGGenerator
 from models.variational_autoencoder import VariationalAutoencoder
 from models.denoising_autoencoder import DenoisingAutoencoder
 from models.contrastive_autoencoder import ContrastiveAutoencoder
+from models.simple_autoencoder import SimpleAutoencoder
 
 from retrieval.retriever import build_retriever
 import time  # single time import retained
@@ -127,7 +130,8 @@ def _auto_discover_checkpoint(ae_type: str, cfg_paths: Dict[str, Any]) -> Path |
     """Attempt to locate the best checkpoint automatically.
 
     Strategy:
-      * Prefer files starting with 'bm_<ae_type>' (your training naming scheme)
+      * Prefer files starting with 'bmret_<ae_type>' (best by retrieval)
+      * Then files starting with 'bm_<ae_type>' (best by val)
       * Else accept files containing '<ae_type>' and 'best'
       * Else fall back to any file containing '<ae_type>'
       * Among candidates, if any expose a pattern '_val<NUMBER>' (e.g. '_val0.0010'), choose the
@@ -140,9 +144,10 @@ def _auto_discover_checkpoint(ae_type: str, cfg_paths: Dict[str, Any]) -> Path |
     patterns_priority: list[tuple[int, str]] = []
     # Priority tiers (lower number = higher priority)
     for ext in exts:
-        patterns_priority.append((0, f"bm_{ae_type}*{ext[1:]}"))          # bm_vae*.pt
-        patterns_priority.append((1, f"*{ae_type}*best*{ext[1:]}"))       # *vae*best*.pt
-        patterns_priority.append((2, f"*{ae_type}*{ext[1:]}"))            # *vae*.pt
+        patterns_priority.append((0, f"bmret_{ae_type}*{ext[1:]}"))  # bmret_vae*.pt
+        patterns_priority.append((1, f"bm_{ae_type}*{ext[1:]}"))      # bm_vae*.pt
+        patterns_priority.append((2, f"*{ae_type}*best*{ext[1:]}"))   # *vae*best*.pt
+        patterns_priority.append((3, f"*{ae_type}*{ext[1:]}"))        # *vae*.pt
     candidates: list[tuple[Path, int]] = []
     seen: set[Path] = set()
     for tier, pat in patterns_priority:
@@ -175,43 +180,118 @@ def _auto_discover_checkpoint(ae_type: str, cfg_paths: Dict[str, Any]) -> Path |
     # Fallback: newest modification time
     return max(tier_candidates, key=lambda p: p.stat().st_mtime)
 
+def _discover_checkpoints_per_latent(ae_type: str, cfg_paths: Dict[str, Any]) -> Dict[int, Path]:
+    """Return best checkpoint per latent_dim for the given AE type.
+
+    Groups all checkpoints that match the ae_type by latent_dim (parsed from filename or history),
+    and for each group selects the file with the lowest val score in its name ('_val<NUM>') or,
+    if unavailable, the most recent mtime. Falls back quietly when none are found.
+    """
+    base = Path(cfg_paths.get("checkpoints_dir", "./models/checkpoints")).resolve()
+    if not base.exists():
+        return {}
+    exts = ("*.pt", "*.pth", "*.bin")
+    groups: Dict[int, List[Path]] = defaultdict(list)
+    for ext in exts:
+        for p in base.glob(f"*{ae_type}*{ext[1:]}"):
+            if not p.is_file():
+                continue
+            # Parse latent from filename or history json
+            lat, _ = _infer_dims_from_checkpoint(p, ae_type, cfg_paths)
+            if lat is None:
+                m = re.search(r"[_-]lat(\d+)", p.stem)
+                lat = int(m.group(1)) if m else None
+            if lat is None:
+                continue
+            groups[int(lat)].append(p)
+
+    def _val_from_name(path: Path) -> float | None:
+        m = re.search(r"[_-]val([0-9]*\.?[0-9]+)", path.stem)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                return None
+        return None
+
+    best_per_lat: Dict[int, Path] = {}
+    for lat, files in groups.items():
+        # Prefer lowest val if present, else newest mtime
+        scored = [(p, _val_from_name(p)) for p in files]
+        with_vals = [x for x in scored if x[1] is not None]
+        if with_vals:
+            best_per_lat[lat] = min(with_vals, key=lambda x: x[1])[0]
+        else:
+            best_per_lat[lat] = max(files, key=lambda p: p.stat().st_mtime)
+    return best_per_lat
+
+def _infer_dims_from_checkpoint(ckpt: Path, ae_type: str, cfg_paths: Dict[str, Any]) -> tuple[int | None, int | None]:
+    """Infer (latent_dim, hidden_dim) from checkpoint filename or matching history JSON.
+
+    Filename patterns expected: *_lat{LAT}_hid{HID}_* (already present in training artifacts).
+    If not found directly, tries to locate a history JSON file under paths.history_dir (or
+    ./models/history) whose stem (without leading 'bm_') is contained in the checkpoint stem,
+    then read 'latent_dim' and 'hidden_dim'. Returns (None, None) if inference fails.
+    """
+    stem = ckpt.stem
+    lat = None
+    hid = None
+    m_lat = re.search(r"[_-]lat(\d+)", stem)
+    m_hid = re.search(r"[_-]hid(\d+)", stem)
+    if m_lat:
+        lat = int(m_lat.group(1))
+    if m_hid:
+        hid = int(m_hid.group(1))
+    if lat and hid:
+        return lat, hid
+    # Try history JSON lookup
+    history_dir = Path(cfg_paths.get("history_dir", "./models/history")).resolve()
+    if not history_dir.exists():
+        return lat, hid
+    # Remove leading bm_ if present for matching
+    norm_stem = stem[3:] if stem.startswith("bm_") else (stem[6:] if stem.startswith("bmret_") else stem)
+    for js in history_dir.glob(f"{ae_type}_{ae_type}_*.json"):
+        jstem = js.stem
+        if jstem in norm_stem or norm_stem in jstem:
+            try:
+                data = json.loads(js.read_text())
+                lat = lat or int(data.get("latent_dim"))
+                hid = hid or int(data.get("hidden_dim"))
+                break
+            except Exception:
+                continue
+    return lat, hid
+
 def _load_autoencoder(
     cfg_models: Dict[str, Dict[str, Any]],
     ae_type: str,
     device: str,
     cfg_paths: Dict[str, Any] | None = None,
     override_ckpt: str | None = None,
-) -> Optional[torch.nn.Module]:
-    """Instantiate and load the requested autoencoder.
+) -> tuple[Optional[torch.nn.Module], Optional[Path]]:
+    """Instantiate and load the requested autoencoder with automatic dim inference.
+
+    Returns (model, checkpoint_path). When ae_type == 'none', returns (None, None).
 
     Precedence for checkpoint path:
       1. --checkpoint CLI override
       2. models.<ae_type>.checkpoint from config
       3. Auto-discovery via _auto_discover_checkpoint
+
+    If latent_dim / hidden_dim in config do not match inferred values from checkpoint
+    (filename or history JSON), inferred values override (with a warning).
     """
     if ae_type == "none":
-        return None
-
+        return None, None
     if ae_type not in cfg_models:
         raise ValueError(f"[CONFIG] Auto‑encoder '{ae_type}' not found in 'models'.")
 
     mcfg = cfg_models[ae_type]
-    input_dim  = mcfg.get("input_dim", 384)
-    latent_dim = mcfg.get("latent_dim", 64)
-    hidden_dim = mcfg.get("hidden_dim", 512)
+    input_dim = int(mcfg.get("input_dim", 384))
+    latent_dim_cfg = mcfg.get("latent_dim")
+    hidden_dim_cfg = mcfg.get("hidden_dim")
 
-    # --- Factory by ae_type (without requiring 'class' in YAML)
-    if ae_type == "vae":
-        model: torch.nn.Module = VariationalAutoencoder(input_dim, latent_dim, hidden_dim)
-    elif ae_type == "dae":
-        model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim)
-    elif ae_type == "cae":
-        model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim)
-    else:
-        raise RuntimeError("Unrecognized AE type.")
-
-    # Determine checkpoint path
-    ckpt: Path | None
+    # Determine checkpoint path first
     if override_ckpt:
         ckpt = Path(override_ckpt).expanduser().resolve()
     else:
@@ -220,14 +300,34 @@ def _load_autoencoder(
             ckpt = _auto_discover_checkpoint(ae_type, cfg_paths or {})
     if not (ckpt and ckpt.exists() and ckpt.is_file()):
         raise FileNotFoundError(
-            f"Checkpoint for '{ae_type}' not found (override={override_ckpt}). "
-            f"Set 'models.{ae_type}.checkpoint', pass --checkpoint, or place a bm_{ae_type}*.pth file."
-        )
+            f"Checkpoint for '{ae_type}' not found (override={override_ckpt}). Set 'models.{ae_type}.checkpoint', pass --checkpoint, or place a bm_{ae_type}*.pth or bmret_{ae_type}*.pth file.")
 
-    model.load_state_dict(torch.load(str(ckpt), map_location=device))
-    return model.to(device).eval()
+    # Infer dims
+    inf_lat, inf_hid = _infer_dims_from_checkpoint(ckpt, ae_type, cfg_paths or {})
+    latent_dim = int(inf_lat or latent_dim_cfg or 64)
+    hidden_dim = int(inf_hid or hidden_dim_cfg or 512)
+    if (latent_dim_cfg and inf_lat and latent_dim_cfg != inf_lat) or (hidden_dim_cfg and inf_hid and hidden_dim_cfg != inf_hid):
+        print(f"[WARN] Overriding config dims (latent={latent_dim_cfg}, hidden={hidden_dim_cfg}) with inferred dims (latent={latent_dim}, hidden={hidden_dim}) from {ckpt.name}.")
 
+    # Factory
+    if ae_type == "vae":
+        model: torch.nn.Module = VariationalAutoencoder(input_dim, latent_dim, hidden_dim)
+    elif ae_type == "dae":
+        model = DenoisingAutoencoder(input_dim, latent_dim, hidden_dim)
+    elif ae_type == "cae":
+        model = ContrastiveAutoencoder(input_dim, latent_dim, hidden_dim)
+    elif ae_type == "base":
+        model = SimpleAutoencoder(input_dim, latent_dim, hidden_dim)
+    else:
+        raise RuntimeError("Unrecognized AE type.")
 
+    state = torch.load(str(ckpt), map_location=device)
+    try:
+        model.load_state_dict(state)
+    except RuntimeError as e:
+        raise RuntimeError(
+            f"Shape mismatch loading '{ckpt.name}'. Inferred latent={latent_dim} hidden={hidden_dim}. Original error: {e}" ) from e
+    return model.to(device).eval(), ckpt
 
 # ---------------------------------------------------------------------------
 # Pipeline steps
@@ -277,12 +377,16 @@ class PipelineRunner:
         self.logger.main.info("Device resolved → %s", self.device)
 
         # Compressor (SBERT ± AE)
-        ae_model = _load_autoencoder(cfg["models"], ae_type, self.device, cfg.get("paths", {}), override_ckpt=checkpoint_override)
+        ae_model, ae_ckpt_path = _load_autoencoder(
+            cfg["models"], ae_type, self.device, cfg.get("paths", {}), override_ckpt=checkpoint_override
+        )
         self.compressor = EmbeddingCompressor(
             base_model_name=cfg["embedding_model"]["name"],
             autoencoder=ae_model,
             device=self.device,
         )
+        # record actual checkpoint used (or None)
+        self.ae_checkpoint_path: Optional[str] = str(ae_ckpt_path) if ae_ckpt_path is not None else None
         # Store precomputed reuse artifacts
         self.pre_corpus_texts = list(pre_corpus_texts) if pre_corpus_texts is not None else None
         self.pre_corpus_doc_ids = list(pre_corpus_doc_ids) if pre_corpus_doc_ids is not None else None
@@ -310,7 +414,7 @@ class PipelineRunner:
         self.retriever = None  # Set in _build_retriever
 
         # Generator
-        self.generator = RAGGenerator(cfg)
+        self.generator = None
 
     # ------------------------------------------------------------------ #
     def process(
@@ -324,22 +428,36 @@ class PipelineRunner:
         self.logger.main.info(
             "Running pipeline: |queries|=%d |corpus|=%d", len(queries), len(corpus)
         )
+        # Initialize generator only if needed
+        if generate and self.generator is None:
+            self.generator = RAGGenerator(self.cfg)
 
         # Reuse pre-chunked corpus if provided
+        use_chunking = bool(self.cfg.get("chunking", {}).get("enabled", False))
         if self.pre_corpus_texts is not None:
-            corpus = self.pre_corpus_texts
-            corpus_doc_ids = self.pre_corpus_doc_ids or list(range(len(corpus)))
-            use_chunking = bool(self.cfg.get("chunking", {}).get("enabled", False))
-            # Mapping for evaluation (chunk texts treated as docs)
-            orig_docs = list(corpus)
-            context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
+            if use_chunking:
+                # (A) CHUNKING ACTIVO → el mapeo se construye con los documentos originales
+                orig_docs = list(corpus)  # corpus = docs completos pasado por el caller
+                context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
+                # y a partir de aquí se trabaja con los chunks precomputados
+                corpus = self.pre_corpus_texts
+                corpus_doc_ids = self.pre_corpus_doc_ids or list(range(len(corpus)))
+                self.logger.main.info(
+                    "Chunking activo (precomputado): |docs|=%d → |chunks|=%d",
+                    len(orig_docs), len(corpus)
+                )
+            else:
+                # (B) SIN CHUNKING → comportamiento previo (1:1)
+                corpus = self.pre_corpus_texts
+                corpus_doc_ids = self.pre_corpus_doc_ids or list(range(len(corpus)))
+                orig_docs = list(corpus)
+                context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
         else:
             # Immutable copy for doc-level evaluation
             orig_docs = list(corpus)
             context2docid: Dict[str, int] = {t: i for i, t in enumerate(orig_docs)}
             # Optional chunking for inference
             ch_cfg = self.cfg.get("chunking", {})
-            use_chunking = bool(ch_cfg.get("enabled", False))
             if use_chunking:
                 from utils.data_utils import prepare_inference_chunks
                 chunks, chunk_index = prepare_inference_chunks(
@@ -544,6 +662,7 @@ class PipelineRunner:
             "n_corpus": n_corpus,
             "n_queries": int(len(queries)),  # NEW: actual number of query samples used
             "ae_type": self.ae_type,
+            "ae_checkpoint": self.ae_checkpoint_path,
         }
         # --- NEW: terse banner for CSV cross-check
         self.logger.main.info("[Result] dim_in=%d dim_out=%d CR=%.2f× n=%d",
@@ -576,6 +695,8 @@ def _parse_args() -> argparse.Namespace:  # noqa: D401
     parser.add_argument("--benchmark", action="store_true",
                         help="Compare against BM25, DPR, SBERT, AE...")
     parser.add_argument("--generate", action="store_true", help="Run generation step (RAG)")
+    parser.add_argument("--per_latent", action="store_true",
+                        help="Evaluate best checkpoint per latent_dim for the selected ae_type")
 
     parser.add_argument("--metrics_csv", default="logs/benchmarks/experiments.csv",
                     help="Ruta del CSV donde añadir una fila por run")
@@ -600,10 +721,11 @@ def main() -> None:  # noqa: D401 – standard script
     ae_variants = (
         [args.ae_type]
         if args.ae_type != "all"
-        else [k for k in cfg.get("models", {}).keys() if k in {"vae", "dae", "cae", "none"}]
+        else [k for k in cfg.get("models", {}).keys() if k in {"vae", "dae", "cae", "base"}]
     )
     # Data
     queries, corpus, relevant = load_evaluation_data(args.dataset, max_samples=args.max_samples)
+    orig_corpus = list(corpus)  # conservar siempre los documentos originales
     # Pre-chunk + base embeddings reuse
     ch_cfg = cfg.get("chunking", {})
     use_chunking = bool(ch_cfg.get("enabled", False))
@@ -638,6 +760,38 @@ def main() -> None:  # noqa: D401 – standard script
     for ae in ae_variants:
         rprint(f"\n[bold cyan]==== PIPELINE ({ae.upper()}) ====\n[/]")
         _print_run_card(cfg, ae, generate=args.generate)
+        # Support per-latent evaluation for a single AE or for all AEs
+        if args.per_latent and (args.ae_type == "all" or ae == args.ae_type):
+             lat_map = _discover_checkpoints_per_latent(ae, cfg.get("paths", {}))
+             if not lat_map:
+                 log.main.warning("No per-latent checkpoints found for '%s'. Falling back to single auto-discovery.", ae)
+             for lat in sorted(lat_map.keys() or []):
+                 ckpt = str(lat_map[lat])
+                 rprint(f"[yellow]→ Evaluating {ae} @ latent_dim={lat}: {Path(ckpt).name}[/]")
+                 runner = PipelineRunner(
+                     cfg, ae, log,
+                     pre_corpus_texts=corpus_texts,
+                     pre_corpus_doc_ids=corpus_doc_ids,
+                     base_corpus_embeddings=base_corpus_emb,
+                     base_query_embeddings=base_query_emb,
+                     checkpoint_override=ckpt,
+                 )
+                # IMPORTANT: pass original docs when chunking is enabled so mapping uses doc-level texts
+                 result = runner.process(
+                    queries,
+                    orig_corpus if use_chunking else corpus_texts,
+                    relevant_docs=relevant,
+                    generate=args.generate,
+                )
+                 # Temporarily annotate tag with latent for CSV clarity
+                 old_tag = getattr(args, "benchmark_tag", "")
+                 setattr(args, "benchmark_tag", (old_tag + "+" if old_tag else "") + f"lat{lat}")
+                 row = build_metrics_row(cfg, args, ae, result)
+                 _append_csv_row(args.metrics_csv, row)
+                 setattr(args, "benchmark_tag", old_tag)
+             if lat_map:
+                 continue  # done for this ae
+        # Default single-checkpoint path
         runner = PipelineRunner(
             cfg, ae, log,
             pre_corpus_texts=corpus_texts,
@@ -646,7 +800,11 @@ def main() -> None:  # noqa: D401 – standard script
             base_query_embeddings=base_query_emb,
             checkpoint_override=args.checkpoint if ae == args.ae_type else None,
         )
-        result = runner.process(queries, corpus_texts, relevant_docs=relevant, generate=args.generate)
+        result = runner.process(
+            queries,
+            orig_corpus if use_chunking else corpus_texts,
+            relevant_docs=relevant,
+            generate=args.generate)
         row = build_metrics_row(cfg, args, ae, result)
         _append_csv_row(args.metrics_csv, row)
 

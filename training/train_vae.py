@@ -1,10 +1,8 @@
-# training/train_vae.py – Variational Auto‑Encoder con validación y early‑stopping
+# training/train_vae.py – Variational Auto-Encoder with fixed-scale monitoring
 
-import argparse
-import os
+from __future__ import annotations
+import argparse, os, json, csv
 from typing import Optional
-import json
-import csv
 
 import torch
 from torch.utils.data import DataLoader
@@ -33,22 +31,23 @@ def train_vae(
     val_split: float = 0.1,
     patience: Optional[int] = 5,
     device: Optional[str] = None,
-    beta: float = 1.0,  # Target β (final)
-    beta_start: float = 0.0,  # Initial β at epoch 1 for warmup
-    beta_warmup_epochs: int = 0,  # Linear warmup epochs to reach β
+    beta: float = 1.0,              # target β (fixed-scale monitor)
+    beta_start: float = 0.0,        # warm-up start
+    beta_warmup_epochs: int = 0,    # warm-up length
     weight_decay: float = 0.0,
     adam_beta1: float = 0.9,
     adam_beta2: float = 0.999,
     early_stop_delta: float = 1e-4,
     max_grad_norm: float | None = None,
     scheduler_factor: float = 0.5,
-    scheduler_patience: Optional[int] = None,  # if None -> (patience//2)
+    scheduler_patience: Optional[int] = None,
     num_workers: int = 0,
     report_cb: Optional[callable] = None,
     trial_suffix: str | None = None,
 ):
+    """Train a VAE while monitoring a fixed-scale validation loss (β fixed)."""
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    if device.startswith('cuda') and torch.cuda.is_available():
+    if device.startswith("cuda") and torch.cuda.is_available():
         try:
             dev_name = torch.cuda.get_device_name(0)
             print(f"[DEVICE] Using GPU: {dev_name} (total {torch.cuda.device_count()} GPU(s))")
@@ -59,148 +58,197 @@ def train_vae(
     print(f"[INFO] Training VAE on {device} | val_split={val_split} | β={beta} (warmup {beta_warmup_epochs} ep)")
 
     full_ds = EmbeddingVAEDataset(dataset_path)
-    from utils.data_utils import split_dataset  # local import to avoid circular
-
+    from utils.data_utils import split_dataset
     train_ds, val_ds = split_dataset(full_ds, val_split=val_split)
-    dl_train = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True,
-                           pin_memory=(device.startswith('cuda')), num_workers=num_workers)
-    dl_val   = DataLoader(val_ds,   batch_size=batch_size, shuffle=False, drop_last=False,
-                          pin_memory=(device.startswith('cuda')), num_workers=num_workers)
 
-    model = VariationalAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
-    optim = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay,
-                             betas=(adam_beta1, adam_beta2))
-
-    # Scheduler for consistency with other trainers
-    sched_pat = scheduler_patience if scheduler_patience is not None else max(1, (patience or 4)//2)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optim, mode='min', factor=scheduler_factor, patience=sched_pat
+    dl_train = DataLoader(
+        train_ds, batch_size=batch_size, shuffle=True, drop_last=True,
+        pin_memory=device.startswith("cuda"), num_workers=num_workers
+    )
+    dl_val = DataLoader(
+        val_ds, batch_size=batch_size, shuffle=False, drop_last=False,
+        pin_memory=device.startswith("cuda"), num_workers=num_workers
     )
 
-    # Base (prefix) for checkpoint naming: remove .pth if user provided it
-    base_ckpt = model_save_path[:-4] if model_save_path.endswith('.pth') else model_save_path
-    if trial_suffix:
-        base_ckpt = base_ckpt + f"_{trial_suffix}"
+    model = VariationalAutoencoder(input_dim, latent_dim, hidden_dim).to(device)
+    optim = torch.optim.Adam(
+        model.parameters(), lr=lr, weight_decay=weight_decay, betas=(adam_beta1, adam_beta2)
+    )
 
-    best_val, best_train, no_improve = float("inf"), float("inf"), 0
-    best_model_path = None
-    best_state = None  # will hold best model parameters
-    history = []  # per-epoch metrics
+    # Scheduler monitors the fixed-scale validation loss
+    sched_pat = scheduler_patience if scheduler_patience is not None else max(1, (patience or 4)//2)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optim, mode="min", factor=scheduler_factor, patience=sched_pat
+    )
+
+    base_ckpt = model_save_path[:-4] if model_save_path.endswith(".pth") else model_save_path
+    if trial_suffix:
+        base_ckpt = f"{base_ckpt}_{trial_suffix}"
+
+    best_val_ref, best_train_ref, no_improve = float("inf"), float("inf"), 0
+    best_state = None
+    history: list[dict] = []
+
     for epoch in range(1, epochs + 1):
-        # β schedule (linear warmup)
+        # β schedule (linear warm-up)
         if beta_warmup_epochs > 0 and epoch <= beta_warmup_epochs:
-            # progress in [0,1]
             prog = (epoch - 1) / max(1, beta_warmup_epochs - 1)
             current_beta = beta_start + (beta - beta_start) * prog
         else:
             current_beta = beta
 
-        # ---------------- train ------------------
-        model.train(); running = 0.0
+        # ----------------------------- TRAIN --------------------------------
+        model.train()
+        train_oper_sum = train_ref_sum = 0.0
+        train_recon_sum = train_kl_sum = 0.0
+
         for batch in dl_train:
-            x_in  = batch["input"].to(device)
+            x_in = batch["input"].to(device)
             x_tar = batch["target"].to(device)
+
             optim.zero_grad()
             x_rec, mu, logvar = model(x_in)
-            loss = vae_loss(x_rec, x_tar, mu, logvar, beta=current_beta)
-            loss.backward()
+
+            # Operational loss (with current β) for backprop; also get parts
+            loss_oper, recon, kl = vae_loss(
+                x_rec, x_tar, mu, logvar, beta=current_beta, return_parts=True
+            )
+            loss_oper.backward()
             if max_grad_norm and max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
             optim.step()
-            running += loss.item() * x_in.size(0)
-        train_loss = running / len(train_ds)
 
-        # ---------------- validation -------------
-        model.eval(); val_running = 0.0
+            bsz = x_in.size(0)
+            train_oper_sum += loss_oper.item() * bsz
+            # Fixed-scale loss (reference, no backward)
+            train_ref_sum  += (recon.item() + beta * kl.item()) * bsz
+            train_recon_sum += recon.item() * bsz
+            train_kl_sum    += kl.item() * bsz
+
+        train_loss_oper = train_oper_sum / len(train_ds)
+        train_loss_ref  = train_ref_sum  / len(train_ds)
+
+        # --------------------------- VALIDATION -----------------------------
+        model.eval()
+        val_oper_sum = val_ref_sum = 0.0
+        val_recon_sum = val_kl_sum = 0.0
         with torch.no_grad():
             for batch in dl_val:
-                x_in  = batch["input"].to(device)
+                x_in = batch["input"].to(device)
                 x_tar = batch["target"].to(device)
                 x_rec, mu, logvar = model(x_in)
-                vloss = vae_loss(x_rec, x_tar, mu, logvar, beta=current_beta)
-                val_running += vloss.item() * x_in.size(0)
-        val_loss = val_running / len(val_ds)
 
-        print(f"[Epoch {epoch:02d}/{epochs}] β={current_beta:.4f} train={train_loss:.6f} | val={val_loss:.6f}")
+                vloss_oper, vrecon, vkl = vae_loss(
+                    x_rec, x_tar, mu, logvar, beta=current_beta, return_parts=True
+                )
+                bsz = x_in.size(0)
+                val_oper_sum += vloss_oper.item() * bsz
+                val_ref_sum  += (vrecon.item() + beta * vkl.item()) * bsz
+                val_recon_sum += vrecon.item() * bsz
+                val_kl_sum    += vkl.item() * bsz
+
+        val_loss_oper = val_oper_sum / len(val_ds)
+        val_loss_ref  = val_ref_sum  / len(val_ds)
+        val_recon     = val_recon_sum / len(val_ds)
+        val_kl        = val_kl_sum / len(val_ds)
+
+        # Logging
+        print(
+            f"[Epoch {epoch:02d}/{epochs}] "
+            f"β_cur={current_beta:.4f} | "
+            f"train(op)={train_loss_oper:.6f} train(ref)={train_loss_ref:.6f} | "
+            f"val(op)={val_loss_oper:.6f} val(ref)={val_loss_ref:.6f} | "
+            f"val[recon]={val_recon:.6f} val[kl]={val_kl:.6f}"
+        )
+
         history.append({
-            'epoch': epoch,
-            'train_loss': float(train_loss),
-            'val_loss': float(val_loss),
-            'beta': float(current_beta),
-            'lr': float(optim.param_groups[0]['lr']),
+            "epoch": epoch,
+            "beta_current": float(current_beta),
+            "lr": float(optim.param_groups[0]["lr"]),
+            "train_loss_oper": float(train_loss_oper),
+            "train_loss_ref": float(train_loss_ref),
+            "val_loss_oper": float(val_loss_oper),
+            "val_loss_ref": float(val_loss_ref),
+            "val_recon": float(val_recon),
+            "val_kl": float(val_kl),
         })
 
-        # callback early so pruning can stop immediately
+        # For external pruners/callbacks: report the fixed-scale losses
         if report_cb is not None:
             try:
-                report_cb(epoch=epoch, train_loss=float(train_loss), val_loss=float(val_loss), lr=float(optim.param_groups[0]['lr']))
+                report_cb(
+                    epoch=epoch,
+                    train_loss=float(train_loss_ref),
+                    val_loss=float(val_loss_ref),
+                    lr=float(optim.param_groups[0]["lr"]),
+                )
             except Exception as cb_err:
+                try:
+                    import optuna
+                    if isinstance(cb_err, optuna.TrialPruned):
+                        print(f"[PRUNE] Trial pruned at epoch {epoch}: {cb_err}")
+                        raise
+                except ImportError:
+                    pass
                 print(f"[WARN] report_cb failed: {cb_err}")
 
-        # Track best (do NOT save yet) ---------------------------------------
-        if val_loss < best_val - early_stop_delta:
-            best_val, best_train, no_improve = val_loss, train_loss, 0
+        # Early-stopping & scheduler on fixed-scale metric
+        scheduler.step(val_loss_ref)
+        if val_loss_ref < best_val_ref - early_stop_delta:
+            best_val_ref, best_train_ref, no_improve = val_loss_ref, train_loss_ref, 0
             best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
-            print(f"[BEST] Improved validation -> val={best_val:.6f} (train={best_train:.6f})")
+            print(f"[BEST] Improved (fixed-scale) validation -> val_ref={best_val_ref:.6f} (train_ref={best_train_ref:.6f})")
         else:
             no_improve += 1
             if patience and no_improve >= patience:
-                print("[EARLY STOP] No improvement in validation."); break
+                print("[EARLY STOP] No improvement in fixed-scale validation.")
+                break
 
-    # ---------------- final save ------------------------------------------------
-    history_dir = os.path.join('models', 'history')
-    os.makedirs(history_dir, exist_ok=True)
+    # --------------------------- SAVE ARTIFACTS ----------------------------
+    history_dir = os.path.join("models", "history"); os.makedirs(history_dir, exist_ok=True)
     if best_state is not None:
-        final_ckpt_path = f"{base_ckpt}_beta{beta}_tr{best_train:.4f}_val{best_val:.4f}.pth"
+        final_ckpt_path = f"{base_ckpt}_beta{beta}_trRef{best_train_ref:.4f}_valRef{best_val_ref:.4f}.pth"
         os.makedirs(os.path.dirname(final_ckpt_path), exist_ok=True)
         torch.save(best_state, final_ckpt_path)
         stem = os.path.splitext(os.path.basename(final_ckpt_path))[0]
         best_model_path = final_ckpt_path
     else:
-        stem = os.path.splitext(os.path.basename(base_ckpt))[0] + '_noimp'
+        stem = os.path.splitext(os.path.basename(base_ckpt))[0] + "_noimp"
+        best_model_path = None
         print("[WARN] No best state captured; nothing saved.")
 
-    meta_path = os.path.join(history_dir, stem + '.json')
-    csv_path  = os.path.join(history_dir, stem + '.csv')
+    meta_path = os.path.join(history_dir, stem + ".json")
+    csv_path  = os.path.join(history_dir, stem + ".csv")
+
     with open(meta_path, "w") as jf:
         json.dump({
-            "best_train_loss": None if best_train == float('inf') else best_train,
-            "best_val_loss": None if best_val == float('inf') else best_val,
-            "input_dim": input_dim,
-            "latent_dim": latent_dim,
-            "hidden_dim": hidden_dim,
-            "batch_size": batch_size,
-            "learning_rate": lr,
-            "weight_decay": weight_decay,
-            "adam_beta1": adam_beta1,
-            "adam_beta2": adam_beta2,
-            "val_split": val_split,
-            "patience": patience,
-            "early_stop_delta": early_stop_delta,
-            "epochs_ran": len(history),
-            "beta_target": beta,
-            "beta_start": beta_start,
-            "beta_warmup_epochs": beta_warmup_epochs,
-            "max_grad_norm": max_grad_norm,
-            "scheduler_factor": scheduler_factor,
-            "scheduler_patience": sched_pat,
-            "num_workers": num_workers,
+            "best_train_loss_ref": None if best_train_ref == float("inf") else best_train_ref,
+            "best_val_loss_ref": None if best_val_ref == float("inf") else best_val_ref,
+            "input_dim": input_dim, "latent_dim": latent_dim, "hidden_dim": hidden_dim,
+            "batch_size": batch_size, "learning_rate": lr, "weight_decay": weight_decay,
+            "adam_beta1": adam_beta1, "adam_beta2": adam_beta2,
+            "val_split": val_split, "patience": patience, "early_stop_delta": early_stop_delta,
+            "epochs_ran": len(history), "beta_target": beta,
+            "beta_start": beta_start, "beta_warmup_epochs": beta_warmup_epochs,
+            "max_grad_norm": max_grad_norm, "scheduler_factor": scheduler_factor,
+            "scheduler_patience": sched_pat, "num_workers": num_workers,
             "trial_suffix": trial_suffix,
         }, jf, indent=2)
+
     if history:
-        with open(csv_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=history[0].keys())
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=list(history[0].keys()))
             writer.writeheader(); writer.writerows(history)
         print(f"[HISTORY] Saved history CSV -> {csv_path}")
     print(f"[META] Saved meta JSON -> {meta_path}")
 
-    print(f"[DONE] best_val_loss = {best_val:.6f} | best_train_loss = {best_train:.6f}")
-
+    print(f"[DONE] best_val_loss_ref = {best_val_ref:.6f} | best_train_loss_ref = {best_train_ref:.6f}")
     return best_model_path
 
 ###############################################################################
-#  CLI                                                                       #
+#  CLI                                                                        #
 ###############################################################################
+
 
 if __name__ == "__main__":
     load_dotenv()

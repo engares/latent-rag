@@ -149,6 +149,13 @@ def train_dae(
             try:
                 report_cb(epoch=epoch, train_loss=float(train_loss), val_loss=float(val_loss), lr=float(optim.param_groups[0]['lr']))
             except Exception as cb_err:
+                try:
+                    import optuna
+                    if isinstance(cb_err, optuna.TrialPruned):
+                        print(f"[PRUNE] Trial pruned at epoch {epoch}: {cb_err}")
+                        raise
+                except ImportError:
+                    pass
                 print(f"[WARN] report_cb failed: {cb_err}")
 
         scheduler.step(val_loss)

@@ -14,7 +14,7 @@ Example
 
 python -m utils.visualization_exp \
   --sbert-cache data/SQUAD/sbert_cache/sbert_8ebee4d368_all-MiniLM-L6-v2.pt \
-  --checkpoint  models/checkpoints/cae_text.pth \
+  --checkpoint  models/checkpoints/vae_20250824_183805_t20_lat192_hid512_lr6.35037e-05_bs128_b1.57_bet \
   --projection  tsne \
   --components  2 \
   --sample-size 1200 \
@@ -83,6 +83,8 @@ def _load_autoencoder(
         from models.denoising_autoencoder import DenoisingAutoencoder as AE
     elif "vae" in name:
         from models.variational_autoencoder import VariationalAutoencoder as AE
+    elif "base" in name:
+        from models.simple_autoencoder import SimpleAutoencoder as AE
     else:
         raise ValueError(f"Cannot infer AE type from checkpoint name: {ckpt}")
 

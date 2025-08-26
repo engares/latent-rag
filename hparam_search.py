@@ -11,20 +11,33 @@ import optuna
 import torch
 import inspect
 import shutil, csv
+# --- added imports for retrieval evaluation ---
+import re
+import copy
 
 from utils.load_config import load_config, init_logger
 from utils.training_utils import set_seed
 from utils.data_utils import prepare_datasets
+# NEW: import the real evaluation data loader and the main pipeline runner
+from utils.data_utils import load_evaluation_data, prepare_inference_chunks
+from main import PipelineRunner
+from retrieval.embedder import EmbeddingCompressor
 
 from training.train_cae import train_cae
 from training.train_vae import train_vae
 from training.train_dae import train_dae
+from training.train_base import train_base
 
 REGISTRY = {
     'cae': train_cae,
     'vae': train_vae,
     'dae': train_dae,
+    'base': train_base,
 }
+
+# --- Retrieval evaluation (aligned with main) -------------------
+
+# Removed obsolete cached-loader and direct FAISS eval; we now reuse PipelineRunner
 
 def _load_sweep_yaml(path: str) -> dict:
     import yaml
@@ -153,7 +166,8 @@ def main():
         if args.model == 'cae' and 'margin' in params: tag_parts.append(f"m{float(params['margin']):.2f}")
         if args.model == 'vae' and 'beta' in params: tag_parts.append(f"b{float(params['beta']):.2f}")
         param_tag = '_'.join(tag_parts)
-        base_name = f"{args.model}_{study_name}_t{trial.number}_{param_tag}" if param_tag else f"{args.model}_{study_name}_t{trial.number}"
+        prefix = study_name if not study_name.startswith(f"{args.model}_") else study_name
+        base_name = f"{prefix}_t{trial.number}_{param_tag}" if param_tag else f"{prefix}_t{trial.number}"
 
         # callback for pruning
         def report_cb(epoch, train_loss, val_loss, lr):
@@ -168,14 +182,22 @@ def main():
 
         # ---- filter unsupported kwargs (e.g., dataset_file) ----
         trainer_sig = inspect.signature(trainer_fn)
-        allowed = set(trainer_sig.parameters.keys())
-        filtered_params = {k: v for k, v in params.items() if k in allowed}
-        dropped = [k for k in params.keys() if k not in allowed]
-        if dropped:
-            log.main.debug("Dropped unsupported params for %s: %s", args.model, dropped)
+        # If trainer supports **kwargs, pass everything through
+        if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in trainer_sig.parameters.values()):
+            filtered_params = params
+        else:
+            allowed = set(trainer_sig.parameters.keys())
+            filtered_params = {k: v for k, v in params.items() if k in allowed}
+            dropped = [k for k in params.keys() if k not in allowed]
+            if dropped:
+                log.main.debug("Dropped unsupported params for %s: %s", args.model, dropped)
 
         try:
             ckpt_path = trainer_fn(**filtered_params)
+        except torch.cuda.OutOfMemoryError:
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            raise optuna.TrialPruned("OOM")
         except optuna.TrialPruned:
             raise
         except Exception as e:
@@ -191,7 +213,8 @@ def main():
     # Save trials summary CSV
     history_dir = os.path.join('models', 'history')
     os.makedirs(history_dir, exist_ok=True)
-    trials_csv = os.path.join(history_dir, f"hpo_{args.model}_{study_name}.csv")
+    prefix = study_name if not study_name.startswith(f"{args.model}_") else study_name
+    trials_csv = os.path.join(history_dir, f"hpo_{prefix}.csv")
     # Collect all param keys
     all_param_keys = sorted({k for t in study.trials for k in t.params.keys()})
     fieldnames = ['number', 'value', 'state'] + all_param_keys + ['ckpt', 'duration']
@@ -203,6 +226,112 @@ def main():
             for k in all_param_keys:
                 row[k] = t.params.get(k)
             writer.writerow(row)
+
+    # ---------------- Post-selection: retrieval re-rank --------------------
+    EVAL_TOP_K = int(os.getenv("HPO_EVAL_TOPK", 5))
+    SAMPLE_Q   = int(os.getenv("HPO_SAMPLE_QUERIES", 2000))
+    PRIMARY    = os.getenv("HPO_PRIMARY", "ndcg@10")
+
+    finals = [t for t in study.trials if (t.value is not None and t.state.name == "COMPLETE")]
+    finals = sorted(finals, key=lambda t: t.value)[:EVAL_TOP_K]
+
+    # Prepare evaluation artifacts ONCE (dataset, chunking, base embeddings)
+    dataset_name = cfg.get('data', {}).get('dataset', 'squad')
+    queries, corpus_docs, relevant = load_evaluation_data(dataset_name, max_samples=SAMPLE_Q)
+    ch_cfg = cfg.get('chunking', {})
+    use_chunking = bool(ch_cfg.get('enabled', False))
+    corpus_texts = corpus_docs
+    corpus_doc_ids = list(range(len(corpus_texts)))
+    if use_chunking:
+        chunks, chunk_index = prepare_inference_chunks(
+            corpus_texts,
+            mode=ch_cfg.get('mode', 'sliding'),
+            max_tokens=ch_cfg.get('max_tokens', 128),
+            stride=ch_cfg.get('stride', 64),
+            min_tokens=ch_cfg.get('min_tokens', 48),
+            tokenizer_name=ch_cfg.get('tokenizer_name', cfg['embedding_model']['name']),
+            index_out=ch_cfg.get('index_out'),
+            store_chunk_text=ch_cfg.get('store_chunk_text', True),
+        )
+        corpus_texts = chunks
+        corpus_doc_ids = chunk_index['doc_id'].astype(int).tolist()
+
+    # Base compressor (no AE) and base embeddings for reuse across trials
+    base_compressor = EmbeddingCompressor(
+        base_model_name=cfg['embedding_model']['name'],
+        autoencoder=None,
+        device=cfg.get('training', {}).get('device') or ("cuda" if torch.cuda.is_available() else "cpu"),
+    )
+    with torch.inference_mode():
+        base_corpus_emb = base_compressor.encode_text(list(corpus_texts), compress=False)
+        base_query_emb = base_compressor.encode_text(list(queries), compress=False)
+
+    # Parse PRIMARY K (e.g., ndcg@10 → 10)
+    mK = re.search(r"@(\d+)$", PRIMARY)
+    primary_k = int(mK.group(1)) if mK else 10
+
+    # Clone cfg and force metric list to align with PRIMARY K
+    cfg_eval = copy.deepcopy(cfg)
+    cfg_eval.setdefault('evaluation', {})
+    cfg_eval['evaluation']['retrieval_metrics'] = [f"Recall@{primary_k}", f"MRR@{primary_k}", f"nDCG@{primary_k}"]
+    cfg_eval.setdefault('retrieval', {})
+    cfg_eval['retrieval']['top_k'] = int(primary_k)
+    if use_chunking:
+        cfg_eval['retrieval']['candidate_k'] = int(max(cfg_eval['retrieval'].get('candidate_k', primary_k * 3), primary_k))
+
+    ret_records = []
+    best_ret_score = -1.0
+    best_ret_trial = None
+    for t in finals:
+        ckpt = t.user_attrs.get("ckpt")
+        if not ckpt or not os.path.exists(ckpt):
+            log.main.warning("Skipped trial %d: missing ckpt", t.number)
+            continue
+        try:
+            runner = PipelineRunner(
+                cfg_eval, args.model, log,
+                pre_corpus_texts=corpus_texts,
+                pre_corpus_doc_ids=corpus_doc_ids,
+                base_corpus_embeddings=base_corpus_emb,
+                base_query_embeddings=base_query_emb,
+                checkpoint_override=ckpt,
+            )
+            result = runner.process(queries, corpus_texts, relevant_docs=relevant, generate=False)
+            retm = result.get('retrieval_metrics', {})
+            # Lower-case metric keys and pick primary
+            metrics = {}
+            for k, v in retm.items():
+                try:
+                    metrics[k.lower()] = float(v.get('mean', 0.0))
+                except Exception:
+                    try:
+                        metrics[k.lower()] = float(v)
+                    except Exception:
+                        continue
+            score = float(metrics.get(PRIMARY, -1.0))
+            ret_records.append({"trial": t.number, "ckpt": ckpt, **metrics})
+            if score > best_ret_score:
+                best_ret_score, best_ret_trial = score, t
+        except Exception as e:
+            log.main.warning("Retrieval eval failed (trial %d): %s", t.number, e)
+
+    if ret_records:
+        ret_csv = os.path.join(history_dir, f"hpo_{args.model}_{study_name}_retrieval.csv")
+        keys = sorted({k for r in ret_records for k in r.keys()})
+        with open(ret_csv, "w", newline="") as fcsv:
+            writer = csv.DictWriter(fcsv, fieldnames=keys); writer.writeheader(); writer.writerows(ret_records)
+        print("[HPO][RET] Metrics CSV:", ret_csv)
+
+    if best_ret_trial is not None:
+        print(f"[HPO][RET] Best by {PRIMARY}: trial={best_ret_trial.number} ckpt={best_ret_trial.user_attrs.get('ckpt')} score={best_ret_score:.4f}")
+        try:
+            ret_ckpt = best_ret_trial.user_attrs.get('ckpt')
+            if ret_ckpt and os.path.exists(ret_ckpt):
+                ret_copy = os.path.join(os.path.dirname(ret_ckpt), 'bmret_' + os.path.basename(ret_ckpt))
+                shutil.copy2(ret_ckpt, ret_copy)
+                print('[HPO][RET] Best retrieval model copy:', ret_copy)
+        except Exception as e:
+            log.main.warning('Could not copy best retrieval model: %s', e)
 
     # Best model prefix copy
     best_ckpt = study.best_trial.user_attrs.get('ckpt')
@@ -222,5 +351,7 @@ def main():
     if bm_ckpt:
         print('[HPO] Best model copy:', bm_ckpt)
 
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     main()

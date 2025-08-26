@@ -459,14 +459,14 @@ def prepare_datasets(
 
     Args:
         cfg: Parsed YAML config dict (must include data and embedding_model).
-        variant: One of `{"vae", "dae", "cae"}.
-        dataset_override: If provided, forces `"uda" or "squad"
+        variant: One of `{"vae", "dae", "cae", "base"}`.
+        dataset_override: If provided, forces `"uda" or "squad"`
 
     Returns:
         The filesystem path to the tensor file corresponding to the *variant*.
     """
     variant = variant.lower()
-    assert variant in {"vae", "dae", "cae"}, "variant must be vae, dae or cae"
+    assert variant in {"vae", "dae", "cae", "base"}, "variant must be vae, dae, cae or base"
 
     ds_name = (dataset_override or cfg.get("data", {}).get("dataset", "squad")).lower()
     if ds_name == "squad":
@@ -476,7 +476,10 @@ def prepare_datasets(
     else:
         raise ValueError(f"Unknown dataset: {ds_name}")
 
-    path = paths[variant]
+    # Map 'base' to same file used by VAE (reconstruction input→target)
+    variant_mapped = "vae" if variant == "base" else variant
+
+    path = paths[variant_mapped]
     if not Path(path).exists():
         raise FileNotFoundError(f"Expected dataset file not found: {path}")
     return path

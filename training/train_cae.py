@@ -163,6 +163,13 @@ def train_cae(
             try:
                 report_cb(epoch=epoch, train_loss=float(train_loss), val_loss=float(val_loss), lr=float(optim.param_groups[0]['lr']))
             except Exception as _cb_err:
+                try:
+                    import optuna
+                    if isinstance(_cb_err, optuna.TrialPruned):
+                        log.info("[PRUNE] Trial pruned at epoch %d: %s", epoch, _cb_err)
+                        raise
+                except ImportError:
+                    pass
                 log.warning("report_cb failed: %s", _cb_err)
 
         # ---------------- Early stop --------------------

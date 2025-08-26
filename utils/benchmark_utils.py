@@ -187,6 +187,8 @@ def build_metrics_row(
 
     metric, normalize_l2 = _extract_retriever_metric(cfg)
     ae_h = _extract_ae_hparams(cfg, ae)
+    # Prefer the real checkpoint used during the run (from result), fallback to config-derived
+    ae_checkpoint_used = result.get("ae_checkpoint") or ae_h.get("ae_checkpoint")
 
     # ------------------------------------------------------------------
     # Size estimation (optimized): use ONLY theoretical sizes.z
@@ -237,7 +239,7 @@ def build_metrics_row(
         "latent_dim": dim_out,
         "dim_in": dim_in,
         "compression_ratio": cr,
-        "ae_checkpoint": ae_h.get("ae_checkpoint"),
+        "ae_checkpoint": ae_checkpoint_used,
         "hidden_dim": ae_h.get("hidden_dim"),
         "beta": ae_h.get("beta"),
         "epochs_trained": ae_h.get("epochs_trained"),
