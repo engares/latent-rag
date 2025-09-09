@@ -32,7 +32,7 @@ fi
 : > "$OUTPUT_TXT"
 
 printf '### Directory tree for: %s\n\n' "$TARGET_DIR" >> "$OUTPUT_TXT"
-tree -F -I '__pycache__' "$TARGET_DIR" >> "$OUTPUT_TXT" || {
+tree -F -I '__pycache__|*.json|*.csv|*:Zone.Identifier|*.pth|*.pt' "$TARGET_DIR" >> "$OUTPUT_TXT" || {
   printf 'Warning: Unable to generate tree for "%s".\n' "$TARGET_DIR" >&2; }
 
 printf '\n\n### File contents\n\n' >> "$OUTPUT_TXT"
@@ -48,6 +48,11 @@ find "$TARGET_DIR" -type f \
   ! -path '*/.*/*' \
   ! -name '.*' \
   ! -path '*/__pycache__/*' \
+  ! -name '*.json' \
+  ! -name '*.csv' \
+  ! -name '*:Zone.Identifier' \
+  ! -name '*.pth' \
+  ! -name '*.pt' \
   -print0 | sort -z |
 while IFS= read -r -d '' FILE
 do
@@ -61,7 +66,7 @@ do
 
   # Skip files with undesired extensions
   case "$FILE" in
-    *.pt|*.pth|*.ipynb|*.parquet|*.log|*.json|*.tmp|*.bak|*.swp|*.zip|*.tar|*.gz|*.rar|*.DS_Store|*.png|*.jpg|*.jpeg|*.gif|*.bmp|*.tiff|*.ico|*.webp|*.csv|*.db|*.svg|*.mp4|*.avi|*.mkv|*.mov|*.wmv|*.flv|*.mp3|*.wav|*.ogg|*.code-workspace|*.vscode|*.idea|*.git|*.svn|*.hg|*.faiss)
+    *.pt|*.pth|*.ipynb|*.parquet|*.log|*.xlsx|*.json|:Zone.Identifier|*.tmp|*.bak|*.swp|*.zip|*.tar|*.gz|*.rar|*.DS_Store|*.png|*.jpg|*.jpeg|*.gif|*.bmp|*.tiff|*.ico|*.webp|*.csv|*.db|*.svg|*.mp4|*.avi|*.mkv|*.mov|*.wmv|*.flv|*.mp3|*.wav|*.ogg|*.code-workspace|*.vscode|*.idea|*.git|*.svn|*.hg|*.faiss)
       continue
       ;;
   esac

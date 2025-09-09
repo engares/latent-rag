@@ -17,3 +17,5 @@ __pycache__/
 *.csv
 *.faiss.meta.json
 *.log
+
+*:Zone.Identifier
