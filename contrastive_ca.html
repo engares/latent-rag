@@ -1,0 +1,23 @@
+<!DOCTYPE html><html><head><meta charset='utf-8'><title>Contrastive Triplets</title>
+<style>
+body {font-family: system-ui, Arial, sans-serif; margin: 16px; background:#fcfcfc;}
+.triplet {border:1px solid #ddd; padding:10px 12px; margin:12px 0; border-radius:6px; background:#fff;}
+.head {font-weight:600; margin-bottom:4px;}
+.row {margin:4px 0; line-height:1.45;}
+.tok {display:inline-block; margin:1px 2px 1px 0; padding:2px 5px; border-radius:4px; font-size:13px;}
+.qonly {background:#eeeeee; color:#555;}
+.overlap {background:#e8f5e9; color:#1b5e20;}
+.posonly {background:#e3f2fd; color:#0d47a1;}
+.negonly {background:#ffebee; color:#b71c1c;}
+.meta {font-size:11px; color:#555; margin-top:6px; font-family:monospace;}
+.legend span {margin-right:16px; font-size:12px;}
+.legend .box {display:inline-block; width:14px; height:14px; margin-right:4px; border-radius:3px; vertical-align:middle;}
+h2 {margin-top:0;}
+</style>
+</head><body><h2>Tripletas Contrastivas</h2><div class="legend" style="margin:8px 0 16px 0;"><span><span class="box" style="background:#e8f5e9;border:1px solid #c8e6c9"></span>Overlap</span><span><span class="box" style="background:#e3f2fd;border:1px solid #bbdefb"></span>Solo en positive</span><span><span class="box" style="background:#ffebee;border:1px solid #ffcdd2"></span>Solo en negative</span><span><span class="box" style="background:#eeeeee;border:1px solid #e0e0e0"></span>Solo en query</span></div><div class="triplet">
+<div class="head">Tripleta 1</div>
+<div class="row"><strong>Query:</strong> <span class="tok overlap">In</span><span class="tok overlap">contrastive</span><span class="tok overlap">autoencoders,</span><span class="tok overlap">the</span><span class="tok overlap">model</span><span class="tok overlap">pulls</span><span class="tok overlap">semantically</span><span class="tok overlap">related</span><span class="tok overlap">inputs</span><span class="tok overlap">closer</span><span class="tok overlap">in</span><span class="tok overlap">latent</span><span class="tok overlap">space</span><span class="tok overlap">while</span><span class="tok overlap">pushing</span><span class="tok overlap">unrelated</span><span class="tok overlap">ones</span><span class="tok overlap">apart</span></div>
+<div class="row"><strong>Positive:</strong> <span class="tok posonly">A</span><span class="tok overlap">contrastive</span><span class="tok posonly">autoencoder</span><span class="tok posonly">adds</span><span class="tok posonly">a</span><span class="tok overlap">contrastive</span><span class="tok posonly">(pair</span><span class="tok posonly">or</span><span class="tok posonly">triplet)</span><span class="tok posonly">objective</span><span class="tok posonly">to</span><span class="tok posonly">reconstruction</span><span class="tok posonly">so</span><span class="tok posonly">positives</span><span class="tok posonly">cluster</span><span class="tok posonly">and</span><span class="tok posonly">negatives</span><span class="tok posonly">disperse</span></div>
+<div class="row"><strong>Negative:</strong> <span class="tok negonly">The</span><span class="tok negonly">migratory</span><span class="tok negonly">patterns</span><span class="tok negonly">of</span><span class="tok negonly">Arctic</span><span class="tok negonly">seabirds</span><span class="tok negonly">depend</span><span class="tok negonly">mainly</span><span class="tok negonly">on</span><span class="tok negonly">ocean</span><span class="tok negonly">currents</span><span class="tok negonly">and</span><span class="tok negonly">plankton</span><span class="tok negonly">blooms</span></div>
+<div class="meta">len(q)=18 len(p)=18 len(n)=14 | Jaccard(q,pos)=0.03 Jaccard(q,neg)=0.00</div>
+</div></body></html>

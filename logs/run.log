@@ -7901,3 +7901,147 @@ Training VAE | device=cuda | deterministic=False
 2025-08-26 00:46:53,420 [INFO] main: Retriever backend 'faiss' initialised in 0.00 s
 2025-08-26 00:46:53,420 [INFO] main: [FAISS] d=96 ntotal=315 (expect d=96, ntotal=315)
 2025-08-26 00:46:53,447 [INFO] main: [Result] dim_in=384 dim_out=96 CR=4.00× n=315
+2025-09-10 17:04:19,978 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-09-10 17:04:25,404 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:31,733 [INFO] main: Device resolved → cuda
+2025-09-10 17:04:31,753 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:33,590 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=32 | compressed=True
+2025-09-10 17:04:33,590 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:04:33,590 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:04:33,590 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4291
+2025-09-10 17:04:33,592 [INFO] main: [Embeddings] corpus_dim=32 (CR=12.00× from 384)
+2025-09-10 17:04:33,616 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-09-10 17:04:33,616 [INFO] main: [FAISS] d=32 ntotal=4291 (expect d=32, ntotal=4291)
+2025-09-10 17:04:33,821 [INFO] main: [Result] dim_in=384 dim_out=32 CR=12.00× n=4291
+2025-09-10 17:04:33,826 [INFO] main: Device resolved → cuda
+2025-09-10 17:04:33,839 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:35,532 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-09-10 17:04:35,532 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:04:35,532 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:04:35,532 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4291
+2025-09-10 17:04:35,539 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-09-10 17:04:35,566 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:04:35,566 [INFO] main: [FAISS] d=64 ntotal=4291 (expect d=64, ntotal=4291)
+2025-09-10 17:04:35,833 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=4291
+2025-09-10 17:04:35,836 [INFO] main: Device resolved → cuda
+2025-09-10 17:04:35,863 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:37,424 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=96 | compressed=True
+2025-09-10 17:04:37,424 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:04:37,425 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:04:37,425 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4291
+2025-09-10 17:04:37,435 [INFO] main: [Embeddings] corpus_dim=96 (CR=4.00× from 384)
+2025-09-10 17:04:37,464 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:04:37,464 [INFO] main: [FAISS] d=96 ntotal=4291 (expect d=96, ntotal=4291)
+2025-09-10 17:04:37,906 [INFO] main: [Result] dim_in=384 dim_out=96 CR=4.00× n=4291
+2025-09-10 17:04:37,908 [INFO] main: Device resolved → cuda
+2025-09-10 17:04:37,933 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:39,478 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=128 | compressed=True
+2025-09-10 17:04:39,479 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:04:39,479 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:04:39,479 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4291
+2025-09-10 17:04:39,495 [INFO] main: [Embeddings] corpus_dim=128 (CR=3.00× from 384)
+2025-09-10 17:04:39,521 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:04:39,521 [INFO] main: [FAISS] d=128 ntotal=4291 (expect d=128, ntotal=4291)
+2025-09-10 17:04:39,904 [INFO] main: [Result] dim_in=384 dim_out=128 CR=3.00× n=4291
+2025-09-10 17:04:39,906 [INFO] main: Device resolved → cuda
+2025-09-10 17:04:39,945 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:41,766 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=160 | compressed=True
+2025-09-10 17:04:41,766 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:04:41,766 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:04:41,766 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4291
+2025-09-10 17:04:41,778 [INFO] main: [Embeddings] corpus_dim=160 (CR=2.40× from 384)
+2025-09-10 17:04:41,809 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:04:41,809 [INFO] main: [FAISS] d=160 ntotal=4291 (expect d=160, ntotal=4291)
+2025-09-10 17:04:42,261 [INFO] main: [Result] dim_in=384 dim_out=160 CR=2.40× n=4291
+2025-09-10 17:04:42,263 [INFO] main: Device resolved → cuda
+2025-09-10 17:04:42,298 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:43,987 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=192 | compressed=True
+2025-09-10 17:04:43,987 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:04:43,987 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:04:43,987 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4291
+2025-09-10 17:04:44,005 [INFO] main: [Embeddings] corpus_dim=192 (CR=2.00× from 384)
+2025-09-10 17:04:44,031 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:04:44,031 [INFO] main: [FAISS] d=192 ntotal=4291 (expect d=192, ntotal=4291)
+2025-09-10 17:04:44,653 [INFO] main: [Result] dim_in=384 dim_out=192 CR=2.00× n=4291
+2025-09-10 17:04:44,655 [INFO] main: Device resolved → cuda
+2025-09-10 17:04:44,700 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:04:46,294 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=224 | compressed=True
+2025-09-10 17:04:46,294 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:04:46,294 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:04:46,294 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4291
+2025-09-10 17:04:46,310 [INFO] main: [Embeddings] corpus_dim=224 (CR=1.71× from 384)
+2025-09-10 17:04:46,336 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:04:46,336 [INFO] main: [FAISS] d=224 ntotal=4291 (expect d=224, ntotal=4291)
+2025-09-10 17:04:46,877 [INFO] main: [Result] dim_in=384 dim_out=224 CR=1.71× n=4291
+2025-09-10 17:04:57,299 [INFO] train: cuDNN benchmark mode ACTIVE (desactivated deterministic mode)
+2025-09-10 17:05:03,173 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:09,473 [INFO] main: Device resolved → cuda
+2025-09-10 17:05:09,486 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:11,133 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=32 | compressed=True
+2025-09-10 17:05:11,133 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:05:11,133 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:05:11,133 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4136
+2025-09-10 17:05:11,135 [INFO] main: [Embeddings] corpus_dim=32 (CR=12.00× from 384)
+2025-09-10 17:05:11,164 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:05:11,164 [INFO] main: [FAISS] d=32 ntotal=4136 (expect d=32, ntotal=4136)
+2025-09-10 17:05:11,364 [INFO] main: [Result] dim_in=384 dim_out=32 CR=12.00× n=4136
+2025-09-10 17:05:11,367 [INFO] main: Device resolved → cuda
+2025-09-10 17:05:11,376 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:13,070 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=64 | compressed=True
+2025-09-10 17:05:13,071 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:05:13,071 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:05:13,071 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4136
+2025-09-10 17:05:13,075 [INFO] main: [Embeddings] corpus_dim=64 (CR=6.00× from 384)
+2025-09-10 17:05:13,104 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:05:13,105 [INFO] main: [FAISS] d=64 ntotal=4136 (expect d=64, ntotal=4136)
+2025-09-10 17:05:13,352 [INFO] main: [Result] dim_in=384 dim_out=64 CR=6.00× n=4136
+2025-09-10 17:05:13,355 [INFO] main: Device resolved → cuda
+2025-09-10 17:05:13,367 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:15,006 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=96 | compressed=True
+2025-09-10 17:05:15,006 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:05:15,006 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:05:15,006 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4136
+2025-09-10 17:05:15,015 [INFO] main: [Embeddings] corpus_dim=96 (CR=4.00× from 384)
+2025-09-10 17:05:15,040 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-09-10 17:05:15,040 [INFO] main: [FAISS] d=96 ntotal=4136 (expect d=96, ntotal=4136)
+2025-09-10 17:05:15,458 [INFO] main: [Result] dim_in=384 dim_out=96 CR=4.00× n=4136
+2025-09-10 17:05:15,460 [INFO] main: Device resolved → cuda
+2025-09-10 17:05:15,473 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:17,022 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=128 | compressed=True
+2025-09-10 17:05:17,022 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:05:17,022 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:05:17,022 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4136
+2025-09-10 17:05:17,034 [INFO] main: [Embeddings] corpus_dim=128 (CR=3.00× from 384)
+2025-09-10 17:05:17,063 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:05:17,064 [INFO] main: [FAISS] d=128 ntotal=4136 (expect d=128, ntotal=4136)
+2025-09-10 17:05:17,429 [INFO] main: [Result] dim_in=384 dim_out=128 CR=3.00× n=4136
+2025-09-10 17:05:17,432 [INFO] main: Device resolved → cuda
+2025-09-10 17:05:17,449 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:19,082 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=160 | compressed=True
+2025-09-10 17:05:19,082 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:05:19,082 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:05:19,082 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4136
+2025-09-10 17:05:19,093 [INFO] main: [Embeddings] corpus_dim=160 (CR=2.40× from 384)
+2025-09-10 17:05:19,120 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:05:19,120 [INFO] main: [FAISS] d=160 ntotal=4136 (expect d=160, ntotal=4136)
+2025-09-10 17:05:19,560 [INFO] main: [Result] dim_in=384 dim_out=160 CR=2.40× n=4136
+2025-09-10 17:05:19,563 [INFO] main: Device resolved → cuda
+2025-09-10 17:05:19,599 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:21,639 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=192 | compressed=True
+2025-09-10 17:05:21,639 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:05:21,639 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:05:21,640 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4136
+2025-09-10 17:05:21,656 [INFO] main: [Embeddings] corpus_dim=192 (CR=2.00× from 384)
+2025-09-10 17:05:21,681 [INFO] main: Retriever backend 'faiss' initialised in 0.02 s
+2025-09-10 17:05:21,681 [INFO] main: [FAISS] d=192 ntotal=4136 (expect d=192, ntotal=4136)
+2025-09-10 17:05:22,314 [INFO] main: [Result] dim_in=384 dim_out=192 CR=2.00× n=4136
+2025-09-10 17:05:22,316 [INFO] main: Device resolved → cuda
+2025-09-10 17:05:22,342 [INFO] sentence_transformers.SentenceTransformer: Load pretrained SentenceTransformer: sentence-transformers/all-MiniLM-L6-v2
+2025-09-10 17:05:23,925 [INFO] main: [Compressor] SBERT_dim=384 | latent_dim=224 | compressed=True
+2025-09-10 17:05:23,925 [INFO] main: Compressor ready (AE = base)
+2025-09-10 17:05:23,925 [INFO] main: Running pipeline: |queries|=10570 |corpus|=2067
+2025-09-10 17:05:23,925 [INFO] main: Chunking activo (precomputado): |docs|=2067 → |chunks|=4136
+2025-09-10 17:05:23,940 [INFO] main: [Embeddings] corpus_dim=224 (CR=1.71× from 384)
+2025-09-10 17:05:23,966 [INFO] main: Retriever backend 'faiss' initialised in 0.03 s
+2025-09-10 17:05:23,967 [INFO] main: [FAISS] d=224 ntotal=4136 (expect d=224, ntotal=4136)
+2025-09-10 17:05:24,507 [INFO] main: [Result] dim_in=384 dim_out=224 CR=1.71× n=4136

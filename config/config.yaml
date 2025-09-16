@@ -76,8 +76,8 @@ generation:
   system_prompt_path: "./config/prompts/system_prompt.txt"
 
 chunking:
-  enabled: false
-  mode: semantic        # "sliding" | "semantic"
+  enabled: true
+  mode: sliding        # "sliding" | "semantic"
   max_tokens: 128
   stride: 64
   min_tokens: 48        # solo para 'semantic'
